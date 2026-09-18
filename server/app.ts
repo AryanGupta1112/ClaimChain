@@ -234,6 +234,13 @@ export function createApp(
   );
   const simulation = new SimulationService(db);
   const app = express();
+  // Behind CloudFront or an ALB the TCP peer is the proxy, so req.ip would be
+  // the same value for every visitor: login rate limiting would share one
+  // counter across all users and the security audit would record the proxy
+  // instead of the actor. Trusting exactly one hop reads the client address
+  // the proxy appended; `true` would trust the whole chain and let a caller
+  // forge it. Loopback development is unaffected.
+  app.set("trust proxy", 1);
   const cookieName = (
     process.env.AUTH_COOKIE_NAME || "claimchain_session"
   ).replace(/[^A-Za-z0-9_-]/g, "");
