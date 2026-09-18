@@ -1,6 +1,16 @@
-import { test, expect } from "@playwright/test";
+import { test, expect, type Page } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
 import { mkdirSync } from "node:fs";
+
+async function login(page: Page, identifier = "admin") {
+  await page.goto("/login");
+  await page.getByLabel("Email or username").fill(identifier);
+  await page
+    .getByLabel("Password", { exact: true })
+    .fill("ClaimChainDemo!2026");
+  await page.getByRole("button", { name: "Enter workspace" }).click();
+  await expect(page).toHaveURL(/\/workspace$/);
+}
 
 test("landing page fills the viewport without clipping", async ({ page }) => {
   mkdirSync(".impeccable/review", { recursive: true });
@@ -46,9 +56,33 @@ test("landing page fills the viewport without clipping", async ({ page }) => {
   });
 });
 
+test("authentication screen is responsive and supports password recovery", async ({
+  page,
+}) => {
+  await page.goto("/login");
+  await expect(
+    page.getByRole("heading", { name: "Welcome back" }),
+  ).toBeVisible();
+  await expect(page.locator(".auth-visual video")).toBeVisible();
+  await page.getByRole("link", { name: "Forgot password?" }).click();
+  await page.getByLabel("Email or username").fill("admin");
+  await page.getByRole("button", { name: "Send reset code" }).click();
+  await expect(page).toHaveURL(/\/reset-password/);
+  await expect(page.getByText("LOCAL DEVELOPMENT CODE")).toBeVisible();
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("/login");
+  await expect(page.locator(".auth-mobile-brand")).toBeVisible();
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth === window.innerWidth,
+    ),
+  ).toBe(true);
+});
+
 test("mobile navigation keeps hidden links out of focus and restores its trigger", async ({
   page,
 }) => {
+  await login(page);
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto("/workspace");
   await expect(page.locator("main h1")).toBeVisible();
@@ -77,6 +111,7 @@ test("mobile navigation keeps hidden links out of focus and restores its trigger
 test("unsaved correspondence survives Escape and can be explicitly discarded", async ({
   page,
 }) => {
+  await login(page);
   await page.goto("/cases/case-2");
   await page.getByRole("button", { name: /Prepare a reminder/ }).click();
   const editor = page.getByLabel("Letter content");
@@ -94,6 +129,7 @@ test("unsaved correspondence survives Escape and can be explicitly discarded", a
 test("payment case: create, attach evidence, prepare a letter, record payment and export", async ({
   page,
 }) => {
+  await login(page);
   const errors: string[] = [];
   page.on("pageerror", (e) => errors.push(e.message));
   await page.goto("/workspace");
@@ -185,6 +221,7 @@ test("payment case: create, attach evidence, prepare a letter, record payment an
 test("stock handoff reserves, dispatches, receives and changes available quantity", async ({
   page,
 }) => {
+  await login(page);
   await page.goto("/stock");
   const rice = page
     .locator(".inventory-item")
@@ -201,6 +238,9 @@ test("stock handoff reserves, dispatches, receives and changes available quantit
     page.getByText("Receipt confirmed. Both inventories updated."),
   ).toBeVisible();
   await page.getByRole("button", { name: /Available inventory/ }).click();
+  await page
+    .getByRole("textbox", { name: "Search inventory" })
+    .fill("Sona masoori rice");
   const lots = page
     .locator(".inventory-item")
     .filter({ hasText: "Sona masoori rice" });
@@ -220,6 +260,7 @@ test("stock handoff reserves, dispatches, receives and changes available quantit
 });
 
 test("document recovery checklist and follow-up flow", async ({ page }) => {
+  await login(page);
   await page.goto("/cases/case-4");
   await expect(
     page.getByRole("button", { name: "Resolve case", exact: true }),
@@ -251,6 +292,7 @@ test("document recovery checklist and follow-up flow", async ({ page }) => {
 test("desktop and mobile layouts, navigation, accessibility and screenshots", async ({
   page,
 }) => {
+  await login(page);
   mkdirSync(".impeccable/review", { recursive: true });
   for (const [name, width, height] of [
     ["desktop", 1440, 1000],
@@ -324,4 +366,26 @@ test("desktop and mobile layouts, navigation, accessibility and screenshots", as
       })),
     })),
   ).toEqual([]);
+});
+
+test("short desktop sidebars keep utilities reachable and identity in the top bar", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1365, height: 414 });
+  await login(page);
+  const sidebar = page.locator("#workspace-navigation");
+  await expect(sidebar).toHaveCSS("overflow-y", "auto");
+  await expect(sidebar.locator(".profile")).toHaveCount(0);
+  await expect(page.locator(".topbar-profile")).toContainText("Aarav Mehta");
+  await expect(page.getByRole("button", { name: "Sign out" })).toBeVisible();
+  await sidebar.evaluate((element) =>
+    element.scrollTo(0, element.scrollHeight),
+  );
+  await expect(
+    page.getByRole("button", { name: "About this workspace" }),
+  ).toBeVisible();
+  await page.screenshot({
+    path: ".impeccable/review/sidebar-short.png",
+    fullPage: false,
+  });
 });

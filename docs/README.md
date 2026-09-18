@@ -16,6 +16,7 @@ This directory is the canonical handbook for the current ClaimChain release. It 
 | [Development and operations](07-DEVELOPMENT_AND_OPERATIONS.md) | Contributors, operators             | Setup, environment, commands, data management, troubleshooting, and release procedure        |
 | [Testing and quality](08-TESTING_AND_QUALITY.md)               | QA, reviewers, contributors         | Automated coverage, visual/accessibility checks, test isolation, and known verification gaps |
 | [Demo and roadmap](09-DEMO_COMPETITION_AND_ROADMAP.md)         | Judges, presenters, stakeholders    | Demo script, competition narrative, architecture talking points, and phased roadmap          |
+| [Authentication, RBAC, and simulation](10-AUTH_RBAC_AND_SIMULATION.md) | Security and integration engineers | Three-role capabilities, account lifecycle, scoped records, audit, and synthetic ingestion   |
 
 ## Current-state labels
 
@@ -28,7 +29,7 @@ The documents use these labels consistently:
 
 ## One-paragraph overview
 
-ClaimChain is a single-owner recovery operations workspace for small stores. It turns scattered evidence into durable action: open a payment, document, or dispute case; attach and hash source files; prepare correspondence; reconcile receipts; schedule follow-ups; export a case packet; or reserve and transfer surplus stock between stores. The application is a React/TypeScript client and an Express/Node server backed by transactional SQLite and local evidence files. Optional AWS SDK adapters mirror evidence to private Amazon S3, extract text from images with Amazon Textract, and draft review-required correspondence with Amazon Bedrock. The current release runs locally without cloud credentials and is packaged for a secure single-instance AWS deployment.
+ClaimChain is a role-controlled recovery operations workspace for small stores. It turns scattered evidence into durable action: open a payment, document, or dispute case; attach and hash source files; prepare correspondence; reconcile receipts; schedule follow-ups; export a case packet; or reserve and transfer surplus stock between stores. The application is a React/TypeScript client and an Express/Node server backed by transactional SQLite and local evidence files. Optional AWS SDK adapters mirror evidence to private Amazon S3, extract text from images with Amazon Textract, and draft review-required correspondence with Amazon Bedrock. Individual sessions, three server-enforced roles, verification/recovery codes, security audit, pagination, and synthetic ingestion are implemented locally.
 
 ## Sources of truth
 

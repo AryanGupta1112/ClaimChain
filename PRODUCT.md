@@ -12,7 +12,7 @@ Implemented under the user's end-to-end build authorization: React, TypeScript, 
 
 ## Users
 
-Small store owners recovering unpaid invoices and coordinating surplus inventory with other stores. A secondary workflow supports individuals assembling lost-document or dispute evidence.
+Workspace administrators, assigned recovery operators, and read-only auditors helping small stores recover unpaid invoices, assemble document/dispute evidence, and coordinate surplus inventory.
 
 ## Product Purpose
 
@@ -24,11 +24,11 @@ Evidence, recovery actions, payments, and handoffs belong to one persistent work
 
 ## Operating Context
 
-India-focused demonstration, INR amounts, desktop administration and mobile access. Seeded stores, people, documents and transactions are fictional and labeled sample data. This is one workspace operated by its owner, not a multi-tenant marketplace.
+India-focused demonstration, INR amounts, desktop administration and mobile access. Seeded stores, people, documents and transactions are fictional and labeled sample data. This is one role-controlled workspace, not a tenant-isolated marketplace.
 
 ## Capabilities and Constraints
 
-Payment cases, evidence uploads, document drafts, task deadlines, payment ledger, stock reservations and transfers, document recovery checklists, case packet export, activity log, workspace settings. User explicitly deferred construction safety; exclude it. AI extraction must identify its provider and require factual review. Legal drafts are templates, not jurisdiction-verified filings. External sending and portal submission are not represented as completed without a provider receipt.
+Payment cases, evidence uploads, document drafts, task deadlines, payment ledger, stock reservations and transfers, document recovery checklists, case packet export, activity log, workspace settings, individual sessions, three-role RBAC, verification/recovery, security audit, pagination, and synthetic ingestion. User explicitly deferred construction safety; exclude it. AI extraction must identify its provider and require factual review. Legal drafts are templates, not jurisdiction-verified filings. External sending and portal submission are not represented as completed without a provider receipt.
 
 ## Brand Commitments
 

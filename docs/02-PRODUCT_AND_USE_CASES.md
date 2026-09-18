@@ -73,7 +73,7 @@ Disputes use the same evidence/checklist machinery as document recovery. A damag
 - Append-only activity events for actual state changes.
 - Workspace profile editing and complete JSON export.
 - Responsive desktop/mobile navigation with keyboard focus management.
-- Optional password protection using a signed HTTP-only session cookie.
+- Individual accounts using opaque HTTP-only sessions, three server-enforced roles, assigned operator scopes, verification, and password recovery.
 - Fictional sample workspace for demonstrations or an empty workspace for real setup.
 
 ## Value proposition

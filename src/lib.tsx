@@ -7,7 +7,13 @@ import {
   type ReactNode,
   useRef,
 } from "react";
-import { X, LoaderCircle, FolderOpen } from "lucide-react";
+import {
+  X,
+  LoaderCircle,
+  FolderOpen,
+  ChevronLeft,
+  ChevronRight,
+} from "lucide-react";
 import { toast } from "sonner";
 import type { Bootstrap, RecoveryCase } from "../shared/types";
 import { calendarDay } from "../shared/calendar";
@@ -16,6 +22,7 @@ export class ApiError extends Error {
   constructor(
     message: string,
     public status: number,
+    public code = "REQUEST_FAILED",
   ) {
     super(message);
   }
@@ -43,7 +50,13 @@ export async function api<T>(
     const data = await response
       .json()
       .catch(() => ({ error: "Connection failed. Try again." }));
-    throw new ApiError(data.error || "Request failed", response.status);
+    if (response.status === 401)
+      window.dispatchEvent(new Event("claimchain:unauthenticated"));
+    throw new ApiError(
+      data.error || "Request failed",
+      response.status,
+      data.code || "REQUEST_FAILED",
+    );
   }
   return response.json();
 }
@@ -104,8 +117,6 @@ export const useWorkspace = () => {
 export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const [data, setData] = useState<Bootstrap | null>(null);
   const [error, setError] = useState("");
-  const [locked, setLocked] = useState(false);
-  const [loading, setLoading] = useState(false);
   const refreshVersion = useRef(0);
   const refresh = useCallback(async () => {
     const version = ++refreshVersion.current;
@@ -114,13 +125,10 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       if (version !== refreshVersion.current) return;
       setData(next);
       setError("");
-      setLocked(false);
     } catch (e) {
       if (version !== refreshVersion.current) return;
-      if (e instanceof ApiError && e.status === 401) {
-        setLocked(true);
-        setData(null);
-      } else setError((e as Error).message);
+      if (e instanceof ApiError && e.status === 401) setData(null);
+      else setError((e as Error).message);
       throw e;
     }
   }, []);
@@ -138,46 +146,6 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       return undefined;
     }
   }
-  if (locked)
-    return (
-      <div className="auth-screen">
-        <form
-          className="auth-form"
-          onSubmit={async (e) => {
-            e.preventDefault();
-            const values = new FormData(e.currentTarget);
-            setLoading(true);
-            try {
-              await api("/login", "POST", { password: values.get("password") });
-              await refresh();
-            } catch (error) {
-              toast.error((error as Error).message);
-            } finally {
-              setLoading(false);
-            }
-          }}
-        >
-          <div className="wordmark">
-            ClaimChain<span>.</span>
-          </div>
-          <h1>Welcome back</h1>
-          <p>Sign in to your recovery workspace.</p>
-          <Field label="Workspace password">
-            <input
-              name="password"
-              type="password"
-              autoComplete="current-password"
-              required
-              autoFocus
-            />
-          </Field>
-          <button className="btn primary" disabled={loading}>
-            {loading && <LoaderCircle className="spin" size={16} />}Unlock
-            workspace
-          </button>
-        </form>
-      </div>
-    );
   if (!data)
     return (
       <div className="boot-screen">
@@ -215,6 +183,72 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       )}
       {children}
     </WorkspaceContext.Provider>
+  );
+}
+
+export function usePagination<T>(items: T[], pageSize = 8) {
+  const [page, setPage] = useState(1);
+  const pageCount = Math.max(1, Math.ceil(items.length / pageSize));
+  useEffect(
+    () => setPage((current) => Math.min(current, pageCount)),
+    [pageCount],
+  );
+  return {
+    page,
+    pageCount,
+    setPage,
+    items: items.slice((page - 1) * pageSize, page * pageSize),
+    total: items.length,
+    from: items.length ? (page - 1) * pageSize + 1 : 0,
+    to: Math.min(page * pageSize, items.length),
+  };
+}
+
+export function Pagination({
+  page,
+  pageCount,
+  setPage,
+  from,
+  to,
+  total,
+}: {
+  page: number;
+  pageCount: number;
+  setPage: (page: number) => void;
+  from: number;
+  to: number;
+  total: number;
+}) {
+  if (pageCount <= 1) return null;
+  return (
+    <nav className="pagination" aria-label="Pagination">
+      <span>
+        {from}-{to} of {total}
+      </span>
+      <div>
+        <button
+          className="icon-btn"
+          aria-label="Previous page"
+          title="Previous page"
+          disabled={page === 1}
+          onClick={() => setPage(page - 1)}
+        >
+          <ChevronLeft size={17} />
+        </button>
+        <strong>
+          Page {page} of {pageCount}
+        </strong>
+        <button
+          className="icon-btn"
+          aria-label="Next page"
+          title="Next page"
+          disabled={page === pageCount}
+          onClick={() => setPage(page + 1)}
+        >
+          <ChevronRight size={17} />
+        </button>
+      </div>
+    </nav>
   );
 }
 

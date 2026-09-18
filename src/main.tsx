@@ -8,8 +8,11 @@ import "@fontsource/ibm-plex-mono/500.css";
 import { WorkspaceProvider } from "./lib";
 import { App } from "./App";
 import { Landing } from "./Landing";
+import { AuthProvider, RequireAuth } from "./auth";
+import { AuthPage } from "./AuthPage";
 import "./styles.css";
 import "./landing.css";
+import "./auth.css";
 
 class ErrorBoundary extends React.Component<
   { children: React.ReactNode },
@@ -37,17 +40,28 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
     <ErrorBoundary>
       <BrowserRouter>
-        <Routes>
-          <Route path="/" element={<Landing />} />
-          <Route
-            path="*"
-            element={
-              <WorkspaceProvider>
-                <App />
-              </WorkspaceProvider>
-            }
-          />
-        </Routes>
+        <AuthProvider>
+          <Routes>
+            <Route path="/" element={<Landing />} />
+            <Route path="/login" element={<AuthPage mode="login" />} />
+            <Route path="/verify" element={<AuthPage mode="verify" />} />
+            <Route
+              path="/forgot-password"
+              element={<AuthPage mode="forgot" />}
+            />
+            <Route path="/reset-password" element={<AuthPage mode="reset" />} />
+            <Route
+              path="*"
+              element={
+                <RequireAuth>
+                  <WorkspaceProvider>
+                    <App />
+                  </WorkspaceProvider>
+                </RequireAuth>
+              }
+            />
+          </Routes>
+        </AuthProvider>
       </BrowserRouter>
       <Toaster position="bottom-right" richColors closeButton />
     </ErrorBoundary>

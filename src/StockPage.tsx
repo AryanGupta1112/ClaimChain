@@ -23,11 +23,15 @@ import {
   Submit,
   PageHead,
   Empty,
+  Pagination,
+  usePagination,
 } from "./lib";
 import type { Lot } from "../shared/types";
+import { useAuth } from "./auth";
 
 export function StockPage() {
   const { data, run } = useWorkspace();
+  const { can } = useAuth();
   const [tab, setTab] = useState("inventory"),
     [query, setQuery] = useState(""),
     [store, setStore] = useState("all"),
@@ -45,24 +49,30 @@ export function StockPage() {
   const active = data.transfers.filter((t) =>
     ["reserved", "dispatched"].includes(t.status),
   );
+  const inventoryPages = usePagination(lots, 6);
+  const transferPages = usePagination(data.transfers, 6);
   return (
     <>
       <PageHead
         title="Stock exchange"
         description="Move available stock to the store that needs it."
       >
-        <button className="btn" onClick={() => setNewStore(true)}>
-          <StoreIcon size={16} />
-          Add store
-        </button>
-        <button
-          className="btn primary"
-          onClick={() => setCreate(true)}
-          disabled={!data.stores.length}
-        >
-          <Plus size={17} />
-          List stock
-        </button>
+        {can("manage_workspace") && (
+          <button className="btn" onClick={() => setNewStore(true)}>
+            <StoreIcon size={16} />
+            Add store
+          </button>
+        )}
+        {can("manage_inventory") && (
+          <button
+            className="btn primary"
+            onClick={() => setCreate(true)}
+            disabled={!data.stores.length}
+          >
+            <Plus size={17} />
+            List stock
+          </button>
+        )}
       </PageHead>
       <div className="stock-summary">
         <div>
@@ -140,7 +150,7 @@ export function StockPage() {
             </select>
           </div>
           <div className="inventory-grid">
-            {lots.map((l, index) => {
+            {inventoryPages.items.map((l, index) => {
               const owner = data.stores.find((s) => s.id === l.storeId)!;
               const available = l.quantity - l.reserved;
               return (
@@ -181,24 +191,27 @@ export function StockPage() {
                   </div>
                   <div className="inventory-bottom">
                     <span>Expires {date(l.expiry)}</span>
-                    <button
-                      className="text-link"
-                      disabled={available <= 0 || l.expiry < today()}
-                      onClick={() => setLot(l)}
-                    >
-                      Transfer stock
-                      <ArrowUpRight size={16} />
-                    </button>
+                    {can("manage_inventory") && (
+                      <button
+                        className="text-link"
+                        disabled={available <= 0 || l.expiry < today()}
+                        onClick={() => setLot(l)}
+                      >
+                        Transfer stock
+                        <ArrowUpRight size={16} />
+                      </button>
+                    )}
                   </div>
                 </article>
               );
             })}
           </div>
           {!lots.length && <Empty title="No stock matches this view" />}
+          <Pagination {...inventoryPages} />
         </>
       ) : (
         <div className="transfer-list">
-          {data.transfers.map((t) => {
+          {transferPages.items.map((t) => {
             const l = data.lots.find((l) => l.id === t.lotId)!;
             return (
               <article className="transfer-item" key={t.id}>
@@ -236,7 +249,7 @@ export function StockPage() {
                           : "Reservation released."}
                   </span>
                   <div>
-                    {t.status === "reserved" && (
+                    {can("manage_inventory") && t.status === "reserved" && (
                       <button
                         className="btn small-btn"
                         disabled={busy === t.id}
@@ -256,37 +269,38 @@ export function StockPage() {
                         Cancel
                       </button>
                     )}
-                    {["reserved", "dispatched"].includes(t.status) && (
-                      <button
-                        className="btn primary small-btn"
-                        disabled={busy === t.id}
-                        onClick={async () => {
-                          setBusy(t.id);
-                          await run(
-                            () =>
-                              api(`/transfers/${t.id}/transition`, "POST", {
-                                status:
-                                  t.status === "reserved"
-                                    ? "dispatched"
-                                    : "received",
-                              }),
-                            t.status === "reserved"
-                              ? "Transfer dispatched"
-                              : "Receipt confirmed; inventory updated",
-                          );
-                          setBusy("");
-                        }}
-                      >
-                        {t.status === "reserved" ? (
-                          <Truck size={15} />
-                        ) : (
-                          <PackageCheck size={15} />
-                        )}
-                        {t.status === "reserved"
-                          ? "Mark dispatched"
-                          : "Confirm receipt"}
-                      </button>
-                    )}
+                    {can("manage_inventory") &&
+                      ["reserved", "dispatched"].includes(t.status) && (
+                        <button
+                          className="btn primary small-btn"
+                          disabled={busy === t.id}
+                          onClick={async () => {
+                            setBusy(t.id);
+                            await run(
+                              () =>
+                                api(`/transfers/${t.id}/transition`, "POST", {
+                                  status:
+                                    t.status === "reserved"
+                                      ? "dispatched"
+                                      : "received",
+                                }),
+                              t.status === "reserved"
+                                ? "Transfer dispatched"
+                                : "Receipt confirmed; inventory updated",
+                            );
+                            setBusy("");
+                          }}
+                        >
+                          {t.status === "reserved" ? (
+                            <Truck size={15} />
+                          ) : (
+                            <PackageCheck size={15} />
+                          )}
+                          {t.status === "reserved"
+                            ? "Mark dispatched"
+                            : "Confirm receipt"}
+                        </button>
+                      )}
                   </div>
                 </div>
               </article>
@@ -304,10 +318,13 @@ export function StockPage() {
               }
             />
           )}
+          <Pagination {...transferPages} />
         </div>
       )}
-      {create && <StockForm close={() => setCreate(false)} />}
-      {lot && (
+      {create && can("manage_inventory") && (
+        <StockForm close={() => setCreate(false)} />
+      )}
+      {lot && can("manage_inventory") && (
         <TransferForm
           lot={lot}
           close={() => setLot(null)}
@@ -317,7 +334,9 @@ export function StockPage() {
           }}
         />
       )}
-      {newStore && <StoreForm close={() => setNewStore(false)} />}
+      {newStore && can("manage_workspace") && (
+        <StoreForm close={() => setNewStore(false)} />
+      )}
     </>
   );
 }

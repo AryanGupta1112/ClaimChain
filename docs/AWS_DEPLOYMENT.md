@@ -105,10 +105,21 @@ PORT=3001
 DATA_DIR=/app/data
 SEED_SAMPLE=false
 
-ACCESS_PASSWORD=<random 12+ character secret>
-SESSION_SECRET=<independent random 32+ character secret>
-COOKIE_SECURE=true
+AUTH_BOOTSTRAP_USERNAME=admin
+AUTH_BOOTSTRAP_EMAIL=admin@claims.example.com
+AUTH_BOOTSTRAP_PASSWORD=<unique strong bootstrap password>
+AUTH_COOKIE_SECURE=true
+AUTH_EXPOSE_CODES=false
 APP_ORIGIN=https://claims.example.com
+
+SMTP_HOST=email-smtp.ap-south-1.amazonaws.com
+SMTP_PORT=587
+SMTP_SECURE=false
+SMTP_USER=<SES SMTP username>
+SMTP_PASSWORD=<SES SMTP password>
+SMTP_FROM=ClaimChain <noreply@claims.example.com>
+
+SIMULATION_ENABLED=false
 
 AWS_REGION=ap-south-1
 S3_BUCKET=<private bucket name>

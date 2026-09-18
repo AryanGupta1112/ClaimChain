@@ -36,9 +36,12 @@ The Node test suite verifies:
 10. Requirement-gated resolution and reopening.
 11. Idempotent follow-up completion/reopening events.
 12. Invalid dates, money, IDs, and cross-origin mutation rejection.
-13. Password session login, unauthorized access, and logout.
-14. Empty workspace store/stock creation.
-15. Workspace profile propagation into correspondence and exports.
+13. Individual session login, anonymous rejection, and logout.
+14. Recovery-operator case/store scoping and administrative denial.
+15. Auditor read/export access with mutation denial.
+16. Provisioning, verification, password recovery, and session revocation.
+17. Empty workspace store/stock creation.
+18. Workspace profile propagation into correspondence and exports.
 
 ## Browser workflow coverage
 
@@ -46,6 +49,7 @@ Playwright verifies:
 
 - full-viewport landing at 1280 x 800 and 390 x 844;
 - exact-black landing background and no page overflow;
+- responsive login and password-recovery routing;
 - mobile navigation focus trap, Escape behavior, and focus restoration;
 - unsaved-draft dismissal protection;
 - payment case creation, evidence upload, drafting, editing, PDF download, partial/full payment, and packet export;

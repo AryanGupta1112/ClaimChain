@@ -28,7 +28,7 @@ The implementation was intentionally built as a complete vertical slice:
 - AWS capabilities are optional adapters rather than prerequisites for local usefulness.
 - Browser tests exercise the same workflows a presenter demonstrates.
 
-The storage design changed during implementation. The initial plan allowed for conventional normalized tables, but the delivered single-owner release uses one versioned JSON workspace snapshot inside SQLite. Every mutation runs under `BEGIN IMMEDIATE`, making cross-collection changes atomic without introducing a large repository layer for a hackathon-scale application. This is a conscious single-instance choice, not a claim that the design scales horizontally.
+The storage design changed during implementation. The operational domain uses one versioned JSON workspace snapshot inside SQLite, while accounts, sessions, one-time requests, and security audit entries use normalized tables. Every workspace mutation runs under `BEGIN IMMEDIATE`, making cross-collection changes atomic without introducing a large repository layer for a hackathon-scale application. This is a conscious single-instance choice, not a claim that the design scales horizontally.
 
 ## Interface evolution
 

@@ -38,10 +38,12 @@ import {
 } from "./lib";
 import { TaskForm } from "./App";
 import type { Draft, Evidence, RecoveryCase } from "../shared/types";
+import { useAuth } from "./auth";
 
 export function CasePage() {
   const { id } = useParams(),
     { data, run } = useWorkspace();
+  const { can } = useAuth();
   const c = data.cases.find((c) => c.id === id);
   const [tab, setTab] = useState("evidence"),
     [payment, setPayment] = useState(false),
@@ -108,24 +110,28 @@ export function CasePage() {
       </Link>
       <PageHead title={c.title} description={`${c.number} · ${c.counterparty}`}>
         <Badge status={c.status} />
-        <a className="btn" href={`/api/cases/${id}/packet`} download>
-          <Download size={16} />
-          Export packet
-        </a>
+        {can("export_packets") && (
+          <a className="btn" href={`/api/cases/${id}/packet`} download>
+            <Download size={16} />
+            Export packet
+          </a>
+        )}
       </PageHead>
       <div className="case-layout">
         <div className="case-main">
           <section className="case-summary">
             <div className="section-title">
               <h2>Case summary</h2>
-              <button
-                className="icon-btn"
-                onClick={() => setNotes(true)}
-                title="Edit summary"
-                aria-label="Edit summary"
-              >
-                <Pencil size={16} />
-              </button>
+              {can("manage_cases") && (
+                <button
+                  className="icon-btn"
+                  onClick={() => setNotes(true)}
+                  title="Edit summary"
+                  aria-label="Edit summary"
+                >
+                  <Pencil size={16} />
+                </button>
+              )}
             </div>
             <p>{c.summary || "No notes recorded."}</p>
             <dl className="case-facts">
@@ -186,54 +192,58 @@ export function CasePage() {
           </div>
           {tab === "evidence" && (
             <section>
-              <input
-                ref={input}
-                type="file"
-                className="sr-only"
-                aria-label="Upload evidence file"
-                accept=".pdf,.png,.jpg,.jpeg,.txt"
-                onChange={async (e) => {
-                  const file = e.target.files?.[0];
-                  if (!file) return;
-                  if (file.size > 10 * 1024 * 1024) {
-                    toast.error("Files must be 10 MB or smaller");
-                    return;
-                  }
-                  const form = new FormData();
-                  form.append("file", file);
-                  setBusy("upload");
-                  await run(
-                    () => api(`/cases/${id}/evidence`, "POST", form),
-                    "Evidence saved",
-                  );
-                  setBusy("");
-                  if (input.current) input.current.value = "";
-                }}
-              />
-              <button
-                className="upload-zone"
-                disabled={!!busy}
-                onClick={() => input.current?.click()}
-              >
-                <span className="upload-icon">
-                  {busy === "upload" ? (
-                    <LoaderCircle size={23} className="spin" />
-                  ) : (
-                    <Upload size={23} strokeWidth={1.6} />
-                  )}
-                </span>
-                <strong>
-                  {busy === "upload"
-                    ? "Saving evidence..."
-                    : "Attach supporting evidence"}
-                </strong>
-                <small>Invoice, delivery receipt or correspondence</small>
-                <span className="file-formats">
-                  PDF, PNG, JPEG, TXT
-                  <span />
-                  Up to 10 MB
-                </span>
-              </button>
+              {can("manage_evidence") && (
+                <input
+                  ref={input}
+                  type="file"
+                  className="sr-only"
+                  aria-label="Upload evidence file"
+                  accept=".pdf,.png,.jpg,.jpeg,.txt"
+                  onChange={async (e) => {
+                    const file = e.target.files?.[0];
+                    if (!file) return;
+                    if (file.size > 10 * 1024 * 1024) {
+                      toast.error("Files must be 10 MB or smaller");
+                      return;
+                    }
+                    const form = new FormData();
+                    form.append("file", file);
+                    setBusy("upload");
+                    await run(
+                      () => api(`/cases/${id}/evidence`, "POST", form),
+                      "Evidence saved",
+                    );
+                    setBusy("");
+                    if (input.current) input.current.value = "";
+                  }}
+                />
+              )}
+              {can("manage_evidence") && (
+                <button
+                  className="upload-zone"
+                  disabled={!!busy}
+                  onClick={() => input.current?.click()}
+                >
+                  <span className="upload-icon">
+                    {busy === "upload" ? (
+                      <LoaderCircle size={23} className="spin" />
+                    ) : (
+                      <Upload size={23} strokeWidth={1.6} />
+                    )}
+                  </span>
+                  <strong>
+                    {busy === "upload"
+                      ? "Saving evidence..."
+                      : "Attach supporting evidence"}
+                  </strong>
+                  <small>Invoice, delivery receipt or correspondence</small>
+                  <span className="file-formats">
+                    PDF, PNG, JPEG, TXT
+                    <span />
+                    Up to 10 MB
+                  </span>
+                </button>
+              )}
               <div className="evidence-list">
                 {evidence.map((e) => (
                   <div className="evidence-row" key={e.id}>
@@ -289,14 +299,16 @@ export function CasePage() {
                           Revision {d.revision} · {d.provider} · Not sent
                         </small>
                       </div>
-                      <button
-                        className="icon-btn"
-                        title="Review draft"
-                        aria-label={`Review ${d.title}`}
-                        onClick={() => setDraft(d)}
-                      >
-                        <Pencil size={16} />
-                      </button>
+                      {can("prepare_documents") && (
+                        <button
+                          className="icon-btn"
+                          title="Review draft"
+                          aria-label={`Review ${d.title}`}
+                          onClick={() => setDraft(d)}
+                        >
+                          <Pencil size={16} />
+                        </button>
+                      )}
                       <a
                         className="icon-btn"
                         href={`/api/documents/${d.id}/download`}
@@ -314,14 +326,16 @@ export function CasePage() {
                   title="No correspondence prepared"
                   detail="Prepare a draft from the facts recorded in this case."
                   action={
-                    <button
-                      className="btn"
-                      onClick={() => void generate()}
-                      disabled={!!busy}
-                    >
-                      <FileText size={16} />
-                      Prepare draft
-                    </button>
+                    can("prepare_documents") ? (
+                      <button
+                        className="btn"
+                        onClick={() => void generate()}
+                        disabled={!!busy}
+                      >
+                        <FileText size={16} />
+                        Prepare draft
+                      </button>
+                    ) : undefined
                   }
                 />
               )}
@@ -410,14 +424,16 @@ export function CasePage() {
                 <span>Payments recorded</span>
                 <strong className="green-text">{money(received)}</strong>
               </div>
-              <button
-                className="btn primary full-width"
-                onClick={() => setPayment(true)}
-                disabled={unpaid <= 0}
-              >
-                <Plus size={17} />
-                {unpaid <= 0 ? "Payment complete" : "Record payment"}
-              </button>
+              {can("record_payments") && (
+                <button
+                  className="btn primary full-width"
+                  onClick={() => setPayment(true)}
+                  disabled={unpaid <= 0}
+                >
+                  <Plus size={17} />
+                  {unpaid <= 0 ? "Payment complete" : "Record payment"}
+                </button>
+              )}
             </section>
           ) : (
             <section className="requirements">
@@ -431,7 +447,11 @@ export function CasePage() {
                   <input
                     type="checkbox"
                     checked={pendingChecks[item.id] ?? item.done}
-                    disabled={busy === item.id || c.status === "resolved"}
+                    disabled={
+                      !can("manage_cases") ||
+                      busy === item.id ||
+                      c.status === "resolved"
+                    }
                     onChange={(e) =>
                       void toggleRequirement(item.id, e.target.checked)
                     }
@@ -439,75 +459,88 @@ export function CasePage() {
                   <span>{item.label}</span>
                 </label>
               ))}
-              <button
-                className="btn primary full-width"
-                disabled={
-                  !!busy ||
-                  (c.status !== "resolved" && checklist.some((i) => !i.done))
-                }
-                onClick={async () => {
-                  setBusy("resolve");
-                  await run(
-                    () =>
-                      api(`/cases/${id}`, "PATCH", {
-                        status:
-                          c.status === "resolved" ? "in_progress" : "resolved",
-                      }),
-                    c.status === "resolved" ? "Case reopened" : "Case resolved",
-                  );
-                  setBusy("");
-                }}
-              >
-                <Check size={16} />
-                {c.status === "resolved" ? "Reopen case" : "Resolve case"}
-              </button>
+              {can("manage_cases") && (
+                <button
+                  className="btn primary full-width"
+                  disabled={
+                    !!busy ||
+                    (c.status !== "resolved" && checklist.some((i) => !i.done))
+                  }
+                  onClick={async () => {
+                    setBusy("resolve");
+                    await run(
+                      () =>
+                        api(`/cases/${id}`, "PATCH", {
+                          status:
+                            c.status === "resolved"
+                              ? "in_progress"
+                              : "resolved",
+                        }),
+                      c.status === "resolved"
+                        ? "Case reopened"
+                        : "Case resolved",
+                    );
+                    setBusy("");
+                  }}
+                >
+                  <Check size={16} />
+                  {c.status === "resolved" ? "Reopen case" : "Resolve case"}
+                </button>
+              )}
             </section>
           )}
-          <section className="case-actions">
-            <h2>Next action</h2>
-            <button
-              className="action-button"
-              disabled={!!busy}
-              onClick={() => void generate()}
-            >
-              <span className="action-icon">
-                <FileText size={18} />
-              </span>
-              <span>
-                <strong>
-                  Prepare {c.kind === "payment" ? "a reminder" : "a request"}
-                </strong>
-                <small>Editable correspondence draft</small>
-              </span>
-              <ArrowUpRight size={16} />
-            </button>
-            {data.capabilities.bedrock && (
-              <button
-                className="action-button"
-                disabled={!!busy}
-                onClick={() => void generate(true)}
-              >
-                <span className="action-icon">
-                  <Sparkles size={18} />
-                </span>
-                <span>
-                  <strong>Draft with Bedrock</strong>
-                  <small>Review before using</small>
-                </span>
-                <ArrowUpRight size={16} />
-              </button>
-            )}
-            <button className="action-button" onClick={() => setTask(true)}>
-              <span className="action-icon">
-                <CalendarDays size={18} />
-              </span>
-              <span>
-                <strong>Schedule a follow-up</strong>
-                <small>Keep this case moving</small>
-              </span>
-              <Plus size={16} />
-            </button>
-          </section>
+          {(can("prepare_documents") || can("manage_tasks")) && (
+            <section className="case-actions">
+              <h2>Next action</h2>
+              {can("prepare_documents") && (
+                <button
+                  className="action-button"
+                  disabled={!!busy}
+                  onClick={() => void generate()}
+                >
+                  <span className="action-icon">
+                    <FileText size={18} />
+                  </span>
+                  <span>
+                    <strong>
+                      Prepare{" "}
+                      {c.kind === "payment" ? "a reminder" : "a request"}
+                    </strong>
+                    <small>Editable correspondence draft</small>
+                  </span>
+                  <ArrowUpRight size={16} />
+                </button>
+              )}
+              {can("prepare_documents") && data.capabilities.bedrock && (
+                <button
+                  className="action-button"
+                  disabled={!!busy}
+                  onClick={() => void generate(true)}
+                >
+                  <span className="action-icon">
+                    <Sparkles size={18} />
+                  </span>
+                  <span>
+                    <strong>Draft with Bedrock</strong>
+                    <small>Review before using</small>
+                  </span>
+                  <ArrowUpRight size={16} />
+                </button>
+              )}
+              {can("manage_tasks") && (
+                <button className="action-button" onClick={() => setTask(true)}>
+                  <span className="action-icon">
+                    <CalendarDays size={18} />
+                  </span>
+                  <span>
+                    <strong>Schedule a follow-up</strong>
+                    <small>Keep this case moving</small>
+                  </span>
+                  <Plus size={16} />
+                </button>
+              )}
+            </section>
+          )}
           <section className="case-followups">
             <div className="section-title">
               <h2>Follow-ups</h2>
@@ -520,7 +553,7 @@ export function CasePage() {
                 <div className="mini-task" key={t.id}>
                   <button
                     className={`check-control ${t.completedAt ? "checked" : ""}`}
-                    disabled={busy === t.id}
+                    disabled={!can("manage_tasks") || busy === t.id}
                     aria-label={`${t.completedAt ? "Reopen" : "Complete"} ${t.title}`}
                     onClick={async () => {
                       setBusy(t.id);
@@ -556,12 +589,16 @@ export function CasePage() {
           </section>
         </aside>
       </div>
-      {payment && (
+      {payment && can("record_payments") && (
         <PaymentForm c={c} remaining={unpaid} close={() => setPayment(false)} />
       )}
-      {task && <TaskForm caseId={id} close={() => setTask(false)} />}
+      {task && can("manage_tasks") && (
+        <TaskForm caseId={id} close={() => setTask(false)} />
+      )}
       {draft && <DraftEditor draft={draft} close={() => setDraft(null)} />}
-      {notes && <NotesEditor c={c} close={() => setNotes(false)} />}
+      {notes && can("manage_cases") && (
+        <NotesEditor c={c} close={() => setNotes(false)} />
+      )}
       {preview && (
         <Modal title={preview.name} close={() => setPreview(null)} wide>
           <div className="modal-body">
@@ -599,7 +636,7 @@ export function CasePage() {
             )}
           </div>
           <div className="modal-actions">
-            {data.capabilities.s3 && (
+            {can("manage_evidence") && data.capabilities.s3 && (
               <button
                 className="btn"
                 disabled={!!busy || !!preview.cloudKey}
@@ -618,7 +655,8 @@ export function CasePage() {
                 {preview.cloudKey ? "Mirrored to S3" : "Mirror to S3"}
               </button>
             )}
-            {data.capabilities.textract &&
+            {can("manage_evidence") &&
+              data.capabilities.textract &&
               preview.mime.startsWith("image/") && (
                 <button
                   className="btn"
@@ -738,6 +776,7 @@ function PaymentForm({
 
 function DraftEditor({ draft, close }: { draft: Draft; close: () => void }) {
   const { run } = useWorkspace();
+  const { can } = useAuth();
   const [current, setCurrent] = useState(draft),
     [body, setBody] = useState(draft.body),
     [busy, setBusy] = useState(false);
@@ -788,6 +827,7 @@ function DraftEditor({ draft, close }: { draft: Draft; close: () => void }) {
             onChange={(e) => setBody(e.target.value)}
             required
             maxLength={30000}
+            readOnly={!can("prepare_documents")}
           />
           <p className="small-note">
             Check the facts before using this letter. No external delivery or
@@ -826,10 +866,12 @@ function DraftEditor({ draft, close }: { draft: Draft; close: () => void }) {
                 <Download size={16} />
                 Download PDF
               </a>
-              <Submit busy={busy || !dirty}>
-                <Check size={16} />
-                Save draft
-              </Submit>
+              {can("prepare_documents") && (
+                <Submit busy={busy || !dirty}>
+                  <Check size={16} />
+                  Save draft
+                </Submit>
+              )}
             </>
           )}
         </div>

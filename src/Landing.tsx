@@ -2,10 +2,10 @@ import { ArrowRight, Link2, ShieldCheck } from "lucide-react";
 import { Link } from "react-router-dom";
 
 const navItems = [
-  { label: "Workspace", to: "/workspace" },
-  { label: "Recovery", to: "/cases" },
-  { label: "Stock exchange", to: "/stock" },
-  { label: "Security", to: "/settings" },
+  { label: "Workspace", to: "/login?next=/workspace" },
+  { label: "Recovery", to: "/login?next=/cases" },
+  { label: "Stock exchange", to: "/login?next=/stock" },
+  { label: "Security", to: "/login?next=/access" },
 ];
 
 export function Landing() {
@@ -42,7 +42,7 @@ export function Landing() {
           ))}
         </nav>
 
-        <Link className="landing-nav-cta landing-rise delay-5" to="/workspace">
+        <Link className="landing-nav-cta landing-rise delay-5" to="/login">
           Enter workspace
           <ArrowRight size={15} />
         </Link>
@@ -62,7 +62,7 @@ export function Landing() {
           ClaimChain brings evidence, payments, follow-ups, and stock handoffs
           into one accountable recovery workspace.
         </p>
-        <Link className="landing-primary landing-rise delay-9" to="/workspace">
+        <Link className="landing-primary landing-rise delay-9" to="/login">
           Open ClaimChain
           <ArrowRight size={18} />
         </Link>

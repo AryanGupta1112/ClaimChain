@@ -2,7 +2,7 @@
 
 ## Security posture
 
-ClaimChain's current controls are appropriate for a local or tightly controlled single-owner deployment. They are not a substitute for a full security program or tenant-isolated public SaaS architecture.
+ClaimChain's current controls are appropriate for a local or tightly controlled single-workspace deployment. They are not a substitute for a full security program or tenant-isolated public SaaS architecture.
 
 ## Trust boundaries
 
@@ -48,14 +48,16 @@ No malware scanner is implemented. Public deployment should scan uploads before 
 
 ### Authentication and sessions
 
-- Authentication is optional locally and enabled by `ACCESS_PASSWORD`.
-- Non-loopback binding refuses to start unless the password is at least 12 characters and `SESSION_SECRET` at least 32 characters.
-- Password comparison uses SHA-256 digests and `timingSafeEqual`.
-- Failed logins are rate-limited per process/IP.
-- Session cookies are HMAC-signed, HTTP-only, `SameSite=Strict`, scoped to `/`, and expire after 24 hours.
-- `Secure` cookies are supported and required for Internet deployment.
+- Authentication is mandatory and uses individual username/email accounts.
+- Passwords are salted scrypt hashes; verification/reset codes and opaque session tokens are stored only as SHA-256 digests.
+- Three server-enforced roles provide capability checks; recovery operators also require explicit case/store assignment.
+- Failed login and code requests are rate-limited per process/IP/identifier.
+- Session cookies are HTTP-only, `SameSite=Lax`, scoped to `/`, and expire server-side after the configured lifetime.
+- Verification and password recovery codes are short-lived, single-use, and revoke sessions after reset.
+- Security-sensitive decisions are recorded in a normalized audit table without credentials or raw tokens.
+- Non-loopback binding requires a strong bootstrap password, `AUTH_COOKIE_SECURE=true`, and `APP_ORIGIN`.
 
-This is single-shared-password authentication, not individual identity, MFA, RBAC, password recovery, or tenant isolation. Process-local rate limits reset on restart and do not coordinate across replicas.
+This is workspace-level RBAC, not tenant isolation or MFA. Process-local rate limits reset on restart and do not coordinate across replicas. See [Authentication, RBAC, and simulation](10-AUTH_RBAC_AND_SIMULATION.md).
 
 ### Request and browser protections
 

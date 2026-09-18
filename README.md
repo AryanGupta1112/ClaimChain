@@ -13,6 +13,8 @@ npm run dev
 
 Open http://127.0.0.1:5173 for the branded landing screen, then enter the workspace. The operational dashboard is also available directly at http://127.0.0.1:5173/workspace. The API runs on port 3001. The first startup creates a fictional sample workspace. Changes persist in `data/claimchain.sqlite` and original evidence in `data/evidence/`.
 
+Sample sign-in: `admin` / `ClaimChainDemo!2026`. The sample also includes `operator` and `auditor` accounts with the same demonstration password so all three RBAC views can be tested.
+
 For the production build on one local port:
 
 ```sh
@@ -31,14 +33,16 @@ Open http://127.0.0.1:3001. Do not run both commands on an occupied API port. `P
 - Create and complete follow-ups; maintain an append-only operational event history.
 - Complete document recovery requirements and resolve/reopen cases.
 - Add stores and inventory, reserve stock, dispatch, cancel reservations, and confirm receipt exactly once.
-- Search/filter/sort records, update business details, export workspace JSON.
-- Optionally connect S3, Textract, Bedrock and workspace password protection.
+- Search/filter/sort and paginate records; update business details and export workspace JSON.
+- Use individual accounts with email verification, password recovery, scoped RBAC, session revocation, and a security audit.
+- Run automatic or manually triggered fictional ingestion when no external feed is connected.
+- Optionally connect S3, Textract, Bedrock, and SMTP/SES delivery.
 
 ## Honest boundaries
 
 Prepared letters are not sent automatically. Payment entries are owner-recorded, not bank-verified. Stock dispatch and receipt are owner-confirmed, not courier integrations. Exported case packets contain a manifest and text, not embedded copies of original binary evidence. Legal drafts are editable factual templates, not jurisdiction-validated legal advice or completed government filings.
 
-Local use needs no cloud credentials. AWS buttons appear only when their server-side settings are configured; live cloud operations still depend on account access. The application is one owner-controlled workspace, not a multi-tenant SaaS service. SQLite data is stored as a versioned atomic workspace snapshot to keep transactions consistent at this scale; scale-out requires a different repository.
+Local use needs no cloud credentials. AWS buttons appear only when their server-side settings are configured; live cloud operations still depend on account access. The application is one role-controlled workspace, not a tenant-isolated SaaS service. SQLite data is stored as a versioned atomic workspace snapshot to keep transactions consistent at this scale; scale-out requires a different repository.
 
 ## Verification
 
@@ -67,6 +71,7 @@ The included GitHub Actions workflow runs formatting, build, API and browser che
 - `docs/07-DEVELOPMENT_AND_OPERATIONS.md`: setup, commands and operations.
 - `docs/08-TESTING_AND_QUALITY.md`: coverage and verification limits.
 - `docs/09-DEMO_COMPETITION_AND_ROADMAP.md`: judging narrative and evolution plan.
+- `docs/10-AUTH_RBAC_AND_SIMULATION.md`: three-role access, auth flows, audit, and synthetic ingestion.
 - `IMPLEMENTATION_PLAN.md`: full product, technical, UX, AWS, risk and test plan.
 - `PRODUCT.md`: product contract.
 - `DESIGN.md`: implemented interface system.

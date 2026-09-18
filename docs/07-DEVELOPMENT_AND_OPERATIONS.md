@@ -43,8 +43,8 @@ Open `http://127.0.0.1:3001/`. Express serves both the built frontend and API.
 | `npm run typecheck`    | TypeScript check without emitting              |
 | `npm run build`        | Typecheck and create `dist/`                   |
 | `npm start`            | Serve API and existing production bundle       |
-| `npm test`             | Run 13 API/domain tests                        |
-| `npm run test:e2e`     | Run seven Playwright browser workflows         |
+| `npm test`             | Run 16 API/domain/auth/RBAC tests               |
+| `npm run test:e2e`     | Run eight Playwright browser workflows         |
 | `npm run format`       | Format application/test code                   |
 | `npm run format:check` | Check formatting without rewriting             |
 
@@ -62,9 +62,15 @@ npx playwright install chromium
 | `PORT`             | `3001`                      | Express port                                   |
 | `DATA_DIR`         | `./data`                    | SQLite and evidence root                       |
 | `SEED_SAMPLE`      | `true`                      | Seed fictional records on a new database       |
-| `ACCESS_PASSWORD`  | unset                       | Enables workspace authentication               |
-| `SESSION_SECRET`   | random per process if local | HMAC signing secret; mandatory for public bind |
-| `COOKIE_SECURE`    | `false`                     | Adds `Secure` to session cookie                |
+| `AUTH_BOOTSTRAP_PASSWORD` | sample demo password | Required for a new non-sample workspace        |
+| `AUTH_COOKIE_NAME` | `claimchain_session`        | Opaque session cookie name                     |
+| `AUTH_COOKIE_SECURE` | `false`                   | Adds `Secure` to session cookie                |
+| `AUTH_SESSION_TTL_HOURS` | `12`                   | Server-side session lifetime                   |
+| `AUTH_CODE_TTL_MINUTES` | `10`                    | Verification/reset code lifetime               |
+| `AUTH_EXPOSE_CODES` | `false`                     | Development-only code display                  |
+| `SIMULATION_ENABLED` | `false`                    | Starts the automatic fictional ingestion feed |
+| `SIMULATION_INTERVAL_MS` | `15000`                | Synthetic event interval, minimum five seconds |
+| `SMTP_HOST`        | unset                       | Enables real verification/recovery email       |
 | `APP_ORIGIN`       | unset                       | Allowed public mutation origin                 |
 | `AWS_REGION`       | `ap-south-1`                | Region for all AWS adapters                    |
 | `S3_BUCKET`        | unset                       | Enables evidence mirror                        |

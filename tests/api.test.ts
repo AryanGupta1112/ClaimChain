@@ -5,8 +5,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import request from "supertest";
 import { createApp } from "../server/app.js";
+import { DEMO_PASSWORD } from "../server/auth.js";
 import { day } from "../server/store.js";
 import { calendarDay } from "../shared/calendar.js";
+
+process.env.AUTH_BOOTSTRAP_PASSWORD = DEMO_PASSWORD;
+process.env.AUTH_EXPOSE_CODES = "true";
+process.env.SIMULATION_ENABLED = "false";
 
 test("India calendar rolls over at midnight IST rather than midnight UTC", () => {
   assert.equal(calendarDay(new Date("2026-09-16T18:29:59Z")), "2026-09-16");
@@ -15,15 +20,20 @@ test("India calendar rolls over at midnight IST rather than midnight UTC", () =>
 });
 
 async function fixture(
-  run: (agent: ReturnType<typeof request>) => Promise<void>,
+  run: (agent: ReturnType<typeof request.agent>) => Promise<void>,
   seed = true,
-  password?: string,
 ) {
   const directory = mkdtempSync(join(tmpdir(), "claimchain-"));
-  const { app, db } = createApp({ directory, seed, password });
+  const { app, db, simulation } = createApp({ directory, seed });
+  const agent = request.agent(app);
   try {
-    await run(request(app));
+    await agent
+      .post("/api/auth/login")
+      .send({ identifier: "admin", password: DEMO_PASSWORD })
+      .expect(200);
+    await run(agent);
   } finally {
+    simulation.stop();
     db.close();
     rmSync(directory, { recursive: true, force: true });
   }
@@ -33,7 +43,12 @@ test("a valid case persists across a database restart", async () => {
   const directory = mkdtempSync(join(tmpdir(), "claimchain-"));
   const first = createApp({ directory, seed: false });
   try {
-    const response = await request(first.app)
+    const firstAgent = request.agent(first.app);
+    await firstAgent
+      .post("/api/auth/login")
+      .send({ identifier: "admin", password: DEMO_PASSWORD })
+      .expect(200);
+    const response = await firstAgent
       .post("/api/cases")
       .send({
         title: "September invoice",
@@ -48,7 +63,12 @@ test("a valid case persists across a database restart", async () => {
     first.db.close();
     const second = createApp({ directory, seed: false });
     try {
-      const read = await request(second.app)
+      const secondAgent = request.agent(second.app);
+      await secondAgent
+        .post("/api/auth/login")
+        .send({ identifier: "admin", password: DEMO_PASSWORD })
+        .expect(200);
+      const read = await secondAgent
         .get(`/api/cases/${response.body.id}`)
         .expect(200);
       assert.equal(read.body.amount, 105099);
@@ -398,28 +418,141 @@ test("invalid dates, money, IDs and cross-origin writes are rejected", () =>
       .expect(404);
   }));
 
-test("password protection rejects anonymous requests and supports session logout", async () => {
+test("role sessions reject anonymous requests and support logout", async () => {
   const directory = mkdtempSync(join(tmpdir(), "claimchain-auth-"));
-  const { app, db } = createApp({
-    directory,
-    password: "a-long-test-password",
-  });
+  const { app, db, simulation } = createApp({ directory });
   const agent = request.agent(app);
   try {
     await agent.get("/api/bootstrap").expect(401);
-    await agent.post("/api/login").send({ password: "wrong" }).expect(401);
     await agent
-      .post("/api/login")
-      .send({ password: "a-long-test-password" })
+      .post("/api/auth/login")
+      .send({ identifier: "admin", password: "wrong" })
+      .expect(401);
+    await agent
+      .post("/api/auth/login")
+      .send({ identifier: "admin", password: DEMO_PASSWORD })
       .expect(200);
     await agent.get("/api/bootstrap").expect(200);
-    await agent.post("/api/logout").expect(200);
+    await agent.post("/api/auth/logout").expect(200);
     await agent.get("/api/bootstrap").expect(401);
   } finally {
+    simulation.stop();
     db.close();
     rmSync(directory, { recursive: true, force: true });
   }
 });
+
+test("recovery operators are limited to assigned cases and stores", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "claimchain-operator-"));
+  const { app, db, simulation } = createApp({ directory });
+  const agent = request.agent(app);
+  try {
+    await agent
+      .post("/api/auth/login")
+      .send({ identifier: "operator", password: DEMO_PASSWORD })
+      .expect(200);
+    const bootstrap = await agent.get("/api/bootstrap").expect(200);
+    assert.deepEqual(
+      bootstrap.body.cases.map((item: { id: string }) => item.id).sort(),
+      ["case-1", "case-2", "case-4"],
+    );
+    assert.deepEqual(
+      bootstrap.body.stores.map((item: { id: string }) => item.id).sort(),
+      ["store-1", "store-2"],
+    );
+    await agent.get("/api/cases/case-1").expect(200);
+    await agent.get("/api/cases/case-3").expect(403);
+    await agent.post("/api/cases").send({}).expect(403);
+    await agent.patch("/api/workspace").send({}).expect(403);
+    await agent.get("/api/admin/users").expect(403);
+  } finally {
+    simulation.stop();
+    db.close();
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("auditors can inspect and export but cannot mutate records", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "claimchain-auditor-"));
+  const { app, db, simulation } = createApp({ directory });
+  const agent = request.agent(app);
+  try {
+    await agent
+      .post("/api/auth/login")
+      .send({ identifier: "auditor", password: DEMO_PASSWORD })
+      .expect(200);
+    await agent.get("/api/bootstrap").expect(200);
+    await agent.get("/api/cases/case-1").expect(200);
+    await agent
+      .get("/api/cases/case-1/packet")
+      .expect(200)
+      .expect("Content-Type", /pdf/);
+    await agent
+      .patch("/api/cases/case-1")
+      .send({ summary: "Changed" })
+      .expect(403);
+    await agent.post("/api/stock").send({}).expect(403);
+  } finally {
+    simulation.stop();
+    db.close();
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("provisioned accounts complete verification and password recovery", () =>
+  fixture(async (agent) => {
+    const created = await agent
+      .post("/api/admin/users")
+      .send({
+        username: "new.operator",
+        email: "new.operator@example.com",
+        displayName: "New Operator",
+        role: "recovery_operator",
+        password: "TemporaryPass!2026",
+        scopes: { caseIds: ["case-1"], storeIds: ["store-1"] },
+      })
+      .expect(201);
+    assert.equal(created.body.verified, false);
+    await agent.post("/api/auth/logout").expect(200);
+    await agent
+      .post("/api/auth/login")
+      .send({ identifier: "new.operator", password: "TemporaryPass!2026" })
+      .expect(403);
+    const verification = await agent
+      .post("/api/auth/verify/send")
+      .send({ identifier: "new.operator" })
+      .expect(200);
+    assert.match(verification.body.developmentCode, /^\d{6}$/);
+    await agent
+      .post("/api/auth/verify/confirm")
+      .send({
+        identifier: "new.operator",
+        requestId: verification.body.requestId,
+        code: verification.body.developmentCode,
+      })
+      .expect(200);
+    await agent
+      .post("/api/auth/login")
+      .send({ identifier: "new.operator", password: "TemporaryPass!2026" })
+      .expect(200);
+    await agent.post("/api/auth/logout").expect(200);
+    const reset = await agent
+      .post("/api/auth/forgot")
+      .send({ identifier: "new.operator" })
+      .expect(200);
+    await agent
+      .post("/api/auth/reset")
+      .send({
+        requestId: reset.body.requestId,
+        code: reset.body.developmentCode,
+        password: "ReplacementPass!2026",
+      })
+      .expect(200);
+    await agent
+      .post("/api/auth/login")
+      .send({ identifier: "new.operator", password: "ReplacementPass!2026" })
+      .expect(200);
+  }));
 
 test("an empty workspace can add stores and stock without seeded data", () =>
   fixture(async (agent) => {

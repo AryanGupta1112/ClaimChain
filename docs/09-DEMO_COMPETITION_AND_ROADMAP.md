@@ -123,7 +123,7 @@ The combination of exact financial reconciliation and stock conservation with id
 - RDS PostgreSQL with tenant-scoped rows and migrations.
 - S3 as primary evidence store using KMS and presigned access.
 - ECS/Fargate stateless API and worker services.
-- Cognito/enterprise identity, MFA, RBAC, and tenant authorization.
+- Cognito/enterprise identity federation, MFA, and tenant isolation while preserving the implemented capability model.
 - SQS/EventBridge/Step Functions for OCR, drafting, reminders, and exports.
 - CloudFront/WAF, CloudTrail, centralized secrets, SLOs, and incident response.
 

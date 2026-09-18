@@ -26,7 +26,8 @@ export default defineConfig({
       HOST: "127.0.0.1",
       DATA_DIR: join(tmpdir(), `claimchain-browser-${Date.now()}`),
       SEED_SAMPLE: "true",
-      ACCESS_PASSWORD: "",
+      AUTH_EXPOSE_CODES: "true",
+      SIMULATION_ENABLED: "false",
     },
   },
 });

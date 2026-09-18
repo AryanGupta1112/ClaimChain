@@ -7,9 +7,9 @@
 - JSON is the default request/response format; evidence upload uses multipart form data.
 - Money is integer paise, never floating-point rupees.
 - Business dates use `YYYY-MM-DD`.
-- Errors use `{ "error": "Human-readable message" }`.
+- Errors use `{ "error": "Human-readable message", "code": "STABLE_CODE" }`.
 - Validation failures return `400`, missing records `404`, and transition/domain conflicts `409`.
-- With password protection enabled, all API routes except health and login require the signed session cookie.
+- All API routes except health and the auth lifecycle require an opaque HTTP-only session cookie.
 - Mutating requests with a foreign `Origin` are rejected with `403`.
 
 ## Health and session
@@ -19,20 +19,45 @@
 Returns process health and whether authentication is enabled.
 
 ```json
-{ "status": "ok", "authentication": false }
+{ "status": "ok", "authentication": true }
 ```
 
-### `POST /api/login`
+### `POST /api/auth/login`
 
 ```json
-{ "password": "workspace password" }
+{ "identifier": "admin", "password": "account password" }
 ```
 
-On success, sets an HTTP-only, `SameSite=Strict` cookie valid for 24 hours. `Secure` is added when `COOKIE_SECURE=true`. Ten failed attempts from one IP within the ten-minute window produce `429`.
+On success, sets an opaque HTTP-only, `SameSite=Lax` cookie. `Secure` is added when `AUTH_COOKIE_SECURE=true`. Repeated attempts are rate limited.
 
-### `POST /api/logout`
+### `GET /api/auth/me`
+
+Returns the current safe user object, including role, capabilities, and assigned record scopes.
+
+### `POST /api/auth/logout`
 
 Expires the session cookie.
+
+### Verification and recovery
+
+- `POST /api/auth/verify/send` with `{ "identifier": "..." }`
+- `POST /api/auth/verify/confirm` with `identifier`, `requestId`, and six-digit `code`
+- `POST /api/auth/forgot` with `{ "identifier": "..." }`
+- `POST /api/auth/reset` with `requestId`, `code`, and the new `password`
+
+Send/forgot use generic responses to limit account discovery. Codes expire, are single-use, and are stored only as digests.
+
+### Administration and simulation
+
+- `GET /api/admin/roles`
+- `GET|POST /api/admin/users`
+- `PATCH|DELETE /api/admin/users/:id`
+- `POST /api/admin/users/:id/resend-verification`
+- `GET /api/admin/security-audit?page=1&pageSize=10`
+- `GET /api/simulation/status`
+- `POST /api/simulation/ingest`
+
+These routes require administrator capabilities. User and audit lists return `items`, `page`, `pageSize`, `total`, and `pages`. See [Authentication, RBAC, and simulation](10-AUTH_RBAC_AND_SIMULATION.md).
 
 ## Workspace
 
@@ -57,7 +82,7 @@ Returns the complete workspace state and server capabilities:
     "bedrock": false,
     "textract": false,
     "s3": false,
-    "auth": false,
+    "auth": true,
     "region": "ap-south-1",
     "mode": "Local workspace"
   }

@@ -33,6 +33,7 @@ import {
   Store,
   CalendarDays,
   SlidersHorizontal,
+  Users,
 } from "lucide-react";
 import {
   api,
@@ -48,31 +49,79 @@ import {
   Submit,
   PageHead,
   Empty,
+  Pagination,
+  usePagination,
 } from "./lib";
+import { useAuth, RequireCapability } from "./auth";
+import { ROLE_DEFINITIONS, type Capability } from "../shared/auth";
 import type { RecoveryCase, CaseKind } from "../shared/types";
 import { CasePage } from "./CasePage";
 import { StockPage } from "./StockPage";
 import { WORKSPACE_TIMEZONE } from "../shared/calendar";
+import { AccessPage } from "./AccessPage";
 
-const navigation = [
-  { path: "/workspace", label: "Overview", icon: LayoutDashboard },
-  { path: "/cases", label: "Recovery cases", icon: BriefcaseBusiness },
-  { path: "/stock", label: "Stock exchange", icon: Boxes },
-  { path: "/tasks", label: "Follow-ups", icon: ListTodo },
-  { path: "/activity", label: "Activity log", icon: Activity },
+const navigation: {
+  path: string;
+  label: string;
+  icon: typeof Activity;
+  capability: Capability;
+}[] = [
+  {
+    path: "/workspace",
+    label: "Overview",
+    icon: LayoutDashboard,
+    capability: "view_dashboard",
+  },
+  {
+    path: "/cases",
+    label: "Recovery cases",
+    icon: BriefcaseBusiness,
+    capability: "view_cases",
+  },
+  {
+    path: "/stock",
+    label: "Stock exchange",
+    icon: Boxes,
+    capability: "view_inventory",
+  },
+  {
+    path: "/tasks",
+    label: "Follow-ups",
+    icon: ListTodo,
+    capability: "manage_tasks",
+  },
+  {
+    path: "/activity",
+    label: "Activity log",
+    icon: Activity,
+    capability: "view_activity",
+  },
+  {
+    path: "/access",
+    label: "Access control",
+    icon: Users,
+    capability: "manage_users",
+  },
 ];
 
 export function App() {
   const { data } = useWorkspace();
+  const { user, can, signOut } = useAuth();
   const [menu, setMenu] = useState(false),
     [create, setCreate] = useState(false),
     [help, setHelp] = useState(false);
   const location = useLocation();
   const title = location.pathname.startsWith("/cases/")
     ? "Case workspace"
-    : [...navigation, { path: "/settings", label: "Settings" }].find(
-        (n) => n.path === location.pathname,
-      )?.label || "Workspace";
+    : [
+        ...navigation,
+        {
+          path: "/settings",
+          label: "Settings",
+          icon: Settings,
+          capability: "manage_workspace" as Capability,
+        },
+      ].find((n) => n.path === location.pathname)?.label || "Workspace";
   const openCases = data.cases.filter((c) => c.status !== "resolved").length;
   const [mobile, setMobile] = useState(
     () => window.matchMedia("(max-width: 760px)").matches,
@@ -151,7 +200,7 @@ export function App() {
           </span>
         </Link>
         <Link
-          to="/settings"
+          to={can("manage_workspace") ? "/settings" : "/workspace"}
           className="workspace-switch"
           onClick={() => setMenu(false)}
         >
@@ -166,24 +215,26 @@ export function App() {
         </Link>
         <div className="nav-label">WORKSPACE</div>
         <nav aria-label="Main navigation">
-          {navigation.map(({ path, label, icon: Icon }) => (
-            <NavLink
-              key={path}
-              to={path}
-              end={path === "/"}
-              onClick={() => setMenu(false)}
-            >
-              <Icon size={19} strokeWidth={1.7} />
-              <span>{label}</span>
-              {path === "/cases" && (
-                <span className="nav-count">{openCases}</span>
-              )}
-              {path === "/tasks" &&
-                data.tasks.some(
-                  (t) => !t.completedAt && t.dueDate < today(),
-                ) && <span className="nav-dot" />}
-            </NavLink>
-          ))}
+          {navigation
+            .filter((item) => can(item.capability))
+            .map(({ path, label, icon: Icon }) => (
+              <NavLink
+                key={path}
+                to={path}
+                end={path === "/"}
+                onClick={() => setMenu(false)}
+              >
+                <Icon size={19} strokeWidth={1.7} />
+                <span>{label}</span>
+                {path === "/cases" && (
+                  <span className="nav-count">{openCases}</span>
+                )}
+                {path === "/tasks" &&
+                  data.tasks.some(
+                    (t) => !t.completedAt && t.dueDate < today(),
+                  ) && <span className="nav-dot" />}
+              </NavLink>
+            ))}
         </nav>
         <div className="sidebar-bottom">
           <div className="workspace-state">
@@ -193,14 +244,16 @@ export function App() {
             </span>
             <ShieldCheck size={15} />
           </div>
-          <NavLink
-            className="utility-link"
-            to="/settings"
-            onClick={() => setMenu(false)}
-          >
-            <Settings size={18} />
-            Settings
-          </NavLink>
+          {can("manage_workspace") && (
+            <NavLink
+              className="utility-link"
+              to="/settings"
+              onClick={() => setMenu(false)}
+            >
+              <Settings size={18} />
+              Settings
+            </NavLink>
+          )}
           <button
             className="utility-link"
             onClick={() => {
@@ -211,16 +264,6 @@ export function App() {
             <CircleHelp size={18} />
             About this workspace
           </button>
-          <div className="profile">
-            <span className="avatar owner">
-              {initials(data.workspace.owner)}
-            </span>
-            <div>
-              <strong>{data.workspace.owner}</strong>
-              <small>Workspace owner</small>
-            </div>
-            <span className="profile-mark">AM</span>
-          </div>
         </div>
       </aside>
       <div className="main-shell" inert={mobile && menu}>
@@ -247,26 +290,105 @@ export function App() {
               Saved locally
             </span>
             <span className="topbar-divider" />
-            <span className="avatar small">
-              {initials(data.workspace.owner)}
-            </span>
+            <div className="topbar-profile">
+              <span className="avatar small">
+                {initials(user!.displayName)}
+              </span>
+              <span className="topbar-identity">
+                <strong>{user!.displayName}</strong>
+                <small>{ROLE_DEFINITIONS[user!.role].label}</small>
+              </span>
+              <button
+                className="icon-btn"
+                title="Sign out"
+                aria-label="Sign out"
+                onClick={() => void signOut()}
+              >
+                <LogOut size={16} />
+              </button>
+            </div>
           </div>
         </header>
         <main id="main">
           <Routes>
             <Route
               path="/workspace"
-              element={<Overview onCreate={() => setCreate(true)} />}
+              element={
+                <RequireCapability capability="view_dashboard">
+                  <Overview onCreate={() => setCreate(true)} />
+                </RequireCapability>
+              }
             />
             <Route
               path="/cases"
-              element={<CasesPage onCreate={() => setCreate(true)} />}
+              element={
+                <RequireCapability capability="view_cases">
+                  <CasesPage onCreate={() => setCreate(true)} />
+                </RequireCapability>
+              }
             />
-            <Route path="/cases/:id" element={<CasePage />} />
-            <Route path="/stock" element={<StockPage />} />
-            <Route path="/tasks" element={<TasksPage />} />
-            <Route path="/activity" element={<ActivityPage />} />
-            <Route path="/settings" element={<SettingsPage />} />
+            <Route
+              path="/cases/:id"
+              element={
+                <RequireCapability capability="view_cases">
+                  <CasePage />
+                </RequireCapability>
+              }
+            />
+            <Route
+              path="/stock"
+              element={
+                <RequireCapability capability="view_inventory">
+                  <StockPage />
+                </RequireCapability>
+              }
+            />
+            <Route
+              path="/tasks"
+              element={
+                <RequireCapability capability="manage_tasks">
+                  <TasksPage />
+                </RequireCapability>
+              }
+            />
+            <Route
+              path="/activity"
+              element={
+                <RequireCapability capability="view_activity">
+                  <ActivityPage />
+                </RequireCapability>
+              }
+            />
+            <Route
+              path="/access"
+              element={
+                <RequireCapability capability="manage_users">
+                  <AccessPage />
+                </RequireCapability>
+              }
+            />
+            <Route
+              path="/settings"
+              element={
+                <RequireCapability capability="manage_workspace">
+                  <SettingsPage />
+                </RequireCapability>
+              }
+            />
+            <Route
+              path="/unauthorized"
+              element={
+                <Empty
+                  title="This area is outside your role"
+                  detail="Your workspace administrator can change your role or assignments."
+                  action={
+                    <Link className="btn primary" to="/workspace">
+                      Return to overview
+                    </Link>
+                  }
+                />
+              }
+            />
             <Route
               path="*"
               element={
@@ -287,7 +409,9 @@ export function App() {
           </footer>
         </main>
       </div>
-      {create && <NewCase close={() => setCreate(false)} />}
+      {create && can("create_cases") && (
+        <NewCase close={() => setCreate(false)} />
+      )}
       {help && (
         <Modal title="About your workspace" close={() => setHelp(false)}>
           <div className="modal-body prose">
@@ -553,6 +677,7 @@ export function CaseTable({
 
 function Overview({ onCreate }: { onCreate: () => void }) {
   const { data } = useWorkspace();
+  const { can } = useAuth();
   const open = data.cases.filter((c) => c.status !== "resolved");
   const unpaid = open.reduce((sum, c) => sum + balance(data, c), 0);
   const recovered = data.payments.reduce((sum, p) => sum + p.amount, 0);
@@ -568,10 +693,12 @@ function Overview({ onCreate }: { onCreate: () => void }) {
         title="Your recovery workspace"
         description={`${new Date().toLocaleDateString("en-IN", { weekday: "long", day: "numeric", month: "long", timeZone: WORKSPACE_TIMEZONE })} · Here's where things stand.`}
       >
-        <button className="btn primary" onClick={onCreate}>
-          <Plus size={17} />
-          New case
-        </button>
+        {can("create_cases") && (
+          <button className="btn primary" onClick={onCreate}>
+            <Plus size={17} />
+            New case
+          </button>
+        )}
       </PageHead>
       <section className="metric-band" aria-label="Workspace totals">
         <div className="metric">
@@ -677,68 +804,77 @@ function Overview({ onCreate }: { onCreate: () => void }) {
           </section>
         </div>
         <aside className="action-rail">
-          <div className="section-title">
-            <h2>
-              Up next<span className="count-chip">{tasks.length}</span>
-            </h2>
-            <Link
-              to="/tasks"
-              className="icon-btn"
-              aria-label="All follow-ups"
-              title="All follow-ups"
-            >
-              <ArrowUpRight size={17} />
-            </Link>
-          </div>
-          {tasks.length ? (
-            <div className="up-next">
-              {tasks.slice(0, 4).map((t) => (
+          {can("manage_tasks") && (
+            <>
+              <div className="section-title">
+                <h2>
+                  Up next<span className="count-chip">{tasks.length}</span>
+                </h2>
                 <Link
-                  to={`/cases/${t.caseId}`}
-                  key={t.id}
-                  className="next-task"
+                  to="/tasks"
+                  className="icon-btn"
+                  aria-label="All follow-ups"
+                  title="All follow-ups"
                 >
-                  <span
-                    className={`task-date ${t.dueDate < today() ? "late" : ""}`}
-                  >
-                    <Clock3 size={13} />
-                    {t.dueDate === today()
-                      ? "Today"
-                      : t.dueDate < today()
-                        ? `Overdue · ${date(t.dueDate)}`
-                        : date(t.dueDate)}
-                  </span>
-                  <strong>{t.title}</strong>
-                  <small>
-                    {data.cases.find((c) => c.id === t.caseId)?.counterparty}
-                    <ArrowRight size={14} />
-                  </small>
+                  <ArrowUpRight size={17} />
                 </Link>
-              ))}
-            </div>
-          ) : (
-            <Empty title="All caught up" />
+              </div>
+              {tasks.length ? (
+                <div className="up-next">
+                  {tasks.slice(0, 4).map((t) => (
+                    <Link
+                      to={`/cases/${t.caseId}`}
+                      key={t.id}
+                      className="next-task"
+                    >
+                      <span
+                        className={`task-date ${t.dueDate < today() ? "late" : ""}`}
+                      >
+                        <Clock3 size={13} />
+                        {t.dueDate === today()
+                          ? "Today"
+                          : t.dueDate < today()
+                            ? `Overdue · ${date(t.dueDate)}`
+                            : date(t.dueDate)}
+                      </span>
+                      <strong>{t.title}</strong>
+                      <small>
+                        {
+                          data.cases.find((c) => c.id === t.caseId)
+                            ?.counterparty
+                        }
+                        <ArrowRight size={14} />
+                      </small>
+                    </Link>
+                  ))}
+                </div>
+              ) : (
+                <Empty title="All caught up" />
+              )}
+            </>
           )}
-          <div className="network-panel">
-            <div className="network-top">
-              <span className="network-icon">
-                <Boxes size={24} strokeWidth={1.5} />
-              </span>
-              <span className="badge received">
-                <span />
-                {data.stores.length} stores
-              </span>
+          {can("view_inventory") && (
+            <div className="network-panel">
+              <div className="network-top">
+                <span className="network-icon">
+                  <Boxes size={24} strokeWidth={1.5} />
+                </span>
+                <span className="badge received">
+                  <span />
+                  {data.stores.length} stores
+                </span>
+              </div>
+              <h3>Put surplus to work.</h3>
+              <p>
+                {data.lots.filter((l) => l.quantity > l.reserved).length} stock
+                lots are available across your store network.
+              </p>
+              <Link to="/stock">
+                Open stock exchange
+                <ArrowUpRight size={17} />
+              </Link>
             </div>
-            <h3>Put surplus to work.</h3>
-            <p>
-              {data.lots.filter((l) => l.quantity > l.reserved).length} stock
-              lots are available across your store network.
-            </p>
-            <Link to="/stock">
-              Open stock exchange
-              <ArrowUpRight size={17} />
-            </Link>
-          </div>
+          )}
           <div className="sample-note">
             <ShieldCheck size={16} />
             <span>
@@ -755,6 +891,7 @@ function Overview({ onCreate }: { onCreate: () => void }) {
 
 function CasesPage({ onCreate }: { onCreate: () => void }) {
   const { data } = useWorkspace();
+  const { can } = useAuth();
   const [query, setQuery] = useState(""),
     [status, setStatus] = useState("all"),
     [kind, setKind] = useState("all"),
@@ -775,16 +912,19 @@ function CasesPage({ onCreate }: { onCreate: () => void }) {
           ? balance(data, b) - balance(data, a)
           : b.createdAt.localeCompare(a.createdAt),
     );
+  const pagination = usePagination(cases, 8);
   return (
     <>
       <PageHead
         title="Recovery cases"
         description="Every obligation, with a clear next step."
       >
-        <button className="btn primary" onClick={onCreate}>
-          <Plus size={17} />
-          New case
-        </button>
+        {can("create_cases") && (
+          <button className="btn primary" onClick={onCreate}>
+            <Plus size={17} />
+            New case
+          </button>
+        )}
       </PageHead>
       <div className="view-tabs" role="group" aria-label="Case status">
         {[
@@ -850,10 +990,8 @@ function CasesPage({ onCreate }: { onCreate: () => void }) {
           </select>
         </div>
       </div>
-      <CaseTable cases={cases} />
-      <div className="table-foot">
-        {cases.length} of {data.cases.length} cases
-      </div>
+      <CaseTable cases={pagination.items} />
+      <Pagination {...pagination} />
     </>
   );
 }
@@ -938,6 +1076,7 @@ function TasksPage() {
         (filter === "done" ? !!t.completedAt : !t.completedAt),
     )
     .sort((a, b) => a.dueDate.localeCompare(b.dueDate));
+  const pagination = usePagination(tasks, 8);
   return (
     <>
       <PageHead
@@ -969,7 +1108,7 @@ function TasksPage() {
         ))}
       </div>
       <div className="task-list">
-        {tasks.map((t) => (
+        {pagination.items.map((t) => (
           <div
             className={`task-row ${t.completedAt ? "complete" : ""}`}
             key={t.id}
@@ -1016,6 +1155,7 @@ function TasksPage() {
           />
         )}
       </div>
+      <Pagination {...pagination} />
       {create && <TaskForm close={() => setCreate(false)} />}
     </>
   );
@@ -1027,6 +1167,7 @@ function ActivityPage() {
   const events = data.events.filter((e) =>
     `${e.action} ${e.detail}`.toLowerCase().includes(query.toLowerCase()),
   );
+  const pagination = usePagination(events, 10);
   return (
     <>
       <PageHead
@@ -1046,7 +1187,7 @@ function ActivityPage() {
         <span className="muted">{events.length} events</span>
       </div>
       <div className="activity-list full">
-        {events.map((e) => (
+        {pagination.items.map((e) => (
           <div className="activity-row" key={e.id}>
             <span className="event-icon">
               <Activity size={17} />
@@ -1073,12 +1214,14 @@ function ActivityPage() {
         ))}
         {!events.length && <Empty title="No matching activity" />}
       </div>
+      <Pagination {...pagination} />
     </>
   );
 }
 
 function SettingsPage() {
-  const { data, run, refresh } = useWorkspace();
+  const { data, run } = useWorkspace();
+  const { signOut } = useAuth();
   const [busy, setBusy] = useState(false);
   return (
     <>
@@ -1185,18 +1328,11 @@ function SettingsPage() {
           <section className="settings-section">
             <h2>Access</h2>
             <p className="muted">
-              {data.capabilities.auth
-                ? "Workspace password protection is enabled."
-                : "Local single-owner workspace. Password protection is not enabled."}
+              Role-based sessions are enabled. User provisioning and security
+              events are managed in Access control.
             </p>
             {data.capabilities.auth && (
-              <button
-                className="btn"
-                onClick={async () => {
-                  await api("/logout", "POST");
-                  await refresh().catch(() => {});
-                }}
-              >
+              <button className="btn" onClick={() => void signOut()}>
                 <LogOut size={16} />
                 Sign out
               </button>
