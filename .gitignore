@@ -1,0 +1,12 @@
+node_modules/
+dist/
+data/
+.env
+*.log
+test-results/
+playwright-report/
+.impeccable/review/
+.kilo/
+coverage/
+*.tmp
+.DS_Store
