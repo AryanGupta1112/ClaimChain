@@ -1,0 +1,108 @@
+{
+  "schemaVersion": 2,
+  "title": "Design System: ClaimChain",
+  "source": "../DESIGN.md",
+  "extensions": {
+    "colorMeta": {
+      "operational-black": {
+        "role": "background",
+        "displayName": "Workspace black"
+      },
+      "operational-surface": {
+        "role": "surface",
+        "displayName": "Raised dark surface"
+      },
+      "operational-ink": {
+        "role": "foreground",
+        "displayName": "Workspace ink"
+      },
+      "operational-muted": {
+        "role": "neutral",
+        "displayName": "Dark-theme secondary text"
+      },
+      "landing-black": { "role": "background", "displayName": "Landing black" },
+      "landing-ink": { "role": "foreground", "displayName": "Landing ink" },
+      "landing-accent": {
+        "role": "primary",
+        "displayName": "Landing action green"
+      },
+      "green": { "role": "primary", "displayName": "Action green" },
+      "ink": { "role": "neutral", "displayName": "Charcoal text" },
+      "surface": { "role": "neutral", "displayName": "White work surface" },
+      "muted-effective": {
+        "role": "neutral",
+        "displayName": "Final secondary text override"
+      }
+    },
+    "typographyMeta": {
+      "landing-display": {
+        "displayName": "Manrope Variable",
+        "purpose": "Public landing headline; compact and high impact."
+      },
+      "landing-mono": {
+        "displayName": "IBM Plex Mono",
+        "purpose": "Landing navigation, captions, and action label."
+      },
+      "body": {
+        "displayName": "Manrope Variable",
+        "purpose": "Shared workspace family; zero letter spacing."
+      }
+    },
+    "shadows": [
+      { "name": "primary-button", "value": "0 2px 3px #173f2310" },
+      { "name": "dialog", "value": "0 24px 90px #142f2933" }
+    ],
+    "motion": [
+      { "name": "ease", "value": "cubic-bezier(0.23, 1, 0.32, 1)" },
+      {
+        "name": "button",
+        "value": "background 150ms, color 150ms, transform 150ms var(--ease)"
+      },
+      { "name": "drawer", "value": "transform 180ms var(--ease)" },
+      { "name": "payment-meter", "value": "transform 200ms var(--ease)" },
+      { "name": "busy-spinner", "value": "spin 1s linear infinite" },
+      {
+        "name": "landing-enter",
+        "value": "720ms cubic-bezier(0.22, 1, 0.36, 1)"
+      },
+      { "name": "landing-drift", "value": "22s ease-in-out infinite alternate" }
+    ],
+    "breakpoints": [
+      { "name": "wide", "value": "1550px", "query": "(min-width: 1550px)" },
+      {
+        "name": "compact-desktop",
+        "value": "1250px",
+        "query": "(max-width: 1250px)"
+      },
+      { "name": "stacked", "value": "1050px", "query": "(max-width: 1050px)" },
+      { "name": "mobile", "value": "760px", "query": "(max-width: 760px)" },
+      { "name": "narrow", "value": "470px", "query": "(max-width: 470px)" }
+    ],
+    "focus": {
+      "control": "3px solid #69aa91",
+      "offset": "3px",
+      "searchWithin": "2px solid #69aa91",
+      "searchOffset": "1px"
+    },
+    "conventions": {
+      "tokens": "Primitives and component tokens are owned by DESIGN.md frontmatter; final CSS overrides and specificity govern effective values.",
+      "dialog": "Native showModal(), labeled heading, body scroll lock, Escape and outside-bounds click routed through close callback, previous focus restored on unmount. Dirty-draft discard confirmation is specific to the draft editor.",
+      "keyboard": "Skip link targets main. Mobile navigation wraps Tab and Shift+Tab, closes on Escape, restores menu-button focus, and uses inert for unavailable regions. View switches are ordinary buttons without arrow-key tab navigation.",
+      "reducedMotion": "At prefers-reduced-motion: reduce, all elements and pseudo-elements receive animation: none !important; transition: none !important; scroll-behavior: auto !important. Static pressed transforms remain.",
+      "landing": "The public root route uses exact #000, white halftone artwork, and a single green action. The operational workspace continues the black canvas with lifted near-black surfaces.",
+      "responsive": "Tables scroll horizontally. Case rail appears visually before main at <=1050px and after main at <=470px; DOM order remains unchanged. Mobile drawer begins at <=760px."
+    }
+  },
+  "components": [],
+  "narrative": {
+    "northStar": "A precise recovery workbench",
+    "overview": "ClaimChain opens with an exact-black, full-viewport public landing surface framed by white halftone hands. The operational product continues with exact-black canvases, lifted near-black work surfaces, pale text, green actions, and blue and amber workflow states. Manrope, compact navigation, ruled registers, and restrained panels establish a practical, information-dense environment. The signature case view places evidence beside live payment reconciliation.",
+    "keyCharacteristics": [
+      "Black surfaces and fine dark-neutral dividers organize the workspace.",
+      "Green identifies primary actions and recovery progress.",
+      "Dense registers, explicit status labels, and aligned financial figures support scanning.",
+      "Evidence, balances, and next actions share the case workspace.",
+      "Restrained motion and native controls support repeat operations."
+    ]
+  }
+}
