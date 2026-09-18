@@ -14,8 +14,9 @@ import {
   ChevronLeft,
   ChevronRight,
 } from "lucide-react";
+import { useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
-import type { Bootstrap, RecoveryCase } from "../shared/types";
+import type { Bootstrap, CaseDetail, RecoveryCase } from "../shared/types";
 import { calendarDay } from "../shared/calendar";
 
 export class ApiError extends Error {
@@ -101,6 +102,119 @@ export const balance = (data: Bootstrap, c: RecoveryCase) =>
   data.payments
     .filter((p) => p.caseId === c.id)
     .reduce((n, p) => n + p.amount, 0);
+
+/**
+ * Per-viewer conveniences only: a recovered draft, a remembered view. Never
+ * financial records, which live on the server. Every accessor is guarded
+ * because storage throws in private windows and with site data blocked, and
+ * the UI must render correctly when it returns nothing.
+ */
+const STORAGE_PREFIX = "claimchain:";
+export const storage = {
+  read(key: string): string | null {
+    try {
+      return window.localStorage.getItem(STORAGE_PREFIX + key);
+    } catch {
+      return null;
+    }
+  },
+  write(key: string, value: string) {
+    try {
+      window.localStorage.setItem(STORAGE_PREFIX + key, value);
+    } catch {
+      // Quota exceeded or storage blocked: the draft simply is not recoverable.
+    }
+  },
+  remove(key: string) {
+    try {
+      window.localStorage.removeItem(STORAGE_PREFIX + key);
+    } catch {
+      // Nothing to do; the entry either never existed or is unreachable.
+    }
+  },
+  /** Called on sign-out so a shared counter machine keeps nothing behind. */
+  clearAll() {
+    try {
+      const doomed = Object.keys(window.localStorage).filter((key) =>
+        key.startsWith(STORAGE_PREFIX),
+      );
+      doomed.forEach((key) => window.localStorage.removeItem(key));
+    } catch {
+      // Storage unavailable; there is nothing persisted to clear.
+    }
+  },
+};
+
+/**
+ * Remembers a view preference across visits. Used for choices that are not
+ * worth a URL, such as which tab of a case was last open.
+ */
+export function useRemembered(key: string, fallback: string) {
+  const [value, setValue] = useState(() => storage.read(key) || fallback);
+  const update = useCallback(
+    (next: string) => {
+      setValue(next);
+      storage.write(key, next);
+    },
+    [key],
+  );
+  return [value, update] as const;
+}
+
+/**
+ * Keeps a filter, tab or search term in the URL. Preferred over storage for
+ * anything that identifies a view: the back button works, a reload lands on
+ * the same screen, and the view can be shared or bookmarked. History is
+ * replaced rather than pushed so typing does not fill the back stack.
+ */
+export function useUrlState(key: string, fallback: string) {
+  const [params, setParams] = useSearchParams();
+  const value = params.get(key) ?? fallback;
+  const update = useCallback(
+    (next: string) => {
+      setParams(
+        (current) => {
+          const draft = new URLSearchParams(current);
+          if (next === fallback) draft.delete(key);
+          else draft.set(key, next);
+          return draft;
+        },
+        { replace: true },
+      );
+    },
+    [key, fallback, setParams],
+  );
+  return [value, update] as const;
+}
+
+/**
+ * Loads one case with its full evidence text, draft bodies and amendment
+ * history. Bootstrap carries only the index, so a case view reads its own
+ * detail rather than the whole workspace.
+ */
+export function useCaseDetail(id: string | undefined) {
+  const [detail, setDetail] = useState<CaseDetail | null>(null);
+  const [loading, setLoading] = useState(true);
+  const version = useRef(0);
+  const reload = useCallback(async () => {
+    if (!id) return;
+    const current = ++version.current;
+    try {
+      const next = await api<CaseDetail>(`/cases/${id}`);
+      if (current === version.current) setDetail(next);
+    } catch {
+      if (current === version.current) setDetail(null);
+    } finally {
+      if (current === version.current) setLoading(false);
+    }
+  }, [id]);
+  useEffect(() => {
+    setDetail(null);
+    setLoading(true);
+    void reload();
+  }, [reload]);
+  return { detail, loading, reload };
+}
 
 interface ContextValue {
   data: Bootstrap;

@@ -25,6 +25,7 @@ import {
   Empty,
   Pagination,
   usePagination,
+  useUrlState,
 } from "./lib";
 import type { Lot } from "../shared/types";
 import { useAuth } from "./auth";
@@ -33,10 +34,11 @@ import { ArchiveForm, RestoreButton } from "./Corrections";
 export function StockPage() {
   const { data, run } = useWorkspace();
   const { can } = useAuth();
-  const [tab, setTab] = useState("inventory"),
-    [query, setQuery] = useState(""),
-    [store, setStore] = useState("all"),
-    [create, setCreate] = useState(false),
+  // View selection lives in the URL; only transient dialog state is local.
+  const [tab, setTab] = useUrlState("tab", "inventory");
+  const [query, setQuery] = useUrlState("q", "");
+  const [store, setStore] = useUrlState("store", "all");
+  const [create, setCreate] = useState(false),
     [newStore, setNewStore] = useState(false),
     [lot, setLot] = useState<Lot | null>(null),
     [archiveLot, setArchiveLot] = useState<Lot | null>(null),

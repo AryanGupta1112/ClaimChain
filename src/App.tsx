@@ -53,6 +53,7 @@ import {
   Empty,
   Pagination,
   usePagination,
+  useUrlState,
 } from "./lib";
 import { useAuth, RequireCapability } from "./auth";
 import { ROLE_DEFINITIONS, type Capability } from "../shared/auth";
@@ -923,10 +924,12 @@ function Overview({ onCreate }: { onCreate: () => void }) {
 function CasesPage({ onCreate }: { onCreate: () => void }) {
   const { data } = useWorkspace();
   const { can } = useAuth();
-  const [query, setQuery] = useState(""),
-    [status, setStatus] = useState("all"),
-    [kind, setKind] = useState("all"),
-    [sort, setSort] = useState("due");
+  // Filters live in the URL so the back button, a reload and a shared link all
+  // land on the same view.
+  const [query, setQuery] = useUrlState("q", ""),
+    [status, setStatus] = useUrlState("status", "all"),
+    [kind, setKind] = useUrlState("kind", "all"),
+    [sort, setSort] = useUrlState("sort", "due");
   // "Archived" is a view of its own: archived cases are excluded from every
   // other tab so totals and workloads only reflect live obligations.
   const matchesStatus = (c: RecoveryCase) =>
@@ -1107,8 +1110,8 @@ export function TaskForm({
 
 function TasksPage() {
   const { data, run } = useWorkspace();
-  const [filter, setFilter] = useState("open"),
-    [create, setCreate] = useState(false),
+  const [filter, setFilter] = useUrlState("filter", "open");
+  const [create, setCreate] = useState(false),
     [busy, setBusy] = useState<string | null>(null);
   const archivedCases = new Set(
     data.cases.filter((c) => c.archivedAt).map((c) => c.id),

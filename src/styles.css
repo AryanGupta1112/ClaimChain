@@ -3438,3 +3438,23 @@ th,
     gap: 8px;
   }
 }
+
+/* Recovered unsaved draft text, offered back after a tab close or crash. */
+.recovery-note {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 10px 14px;
+  margin-bottom: 12px;
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--green);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--green) 8%, transparent);
+  font-size: 13px;
+  line-height: 1.5;
+}
+.recovery-note span {
+  flex: 1 1 220px;
+  color: var(--ink);
+}

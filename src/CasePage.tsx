@@ -1,4 +1,4 @@
-import { useState, useRef, type FormEvent } from "react";
+import { useState, useRef, useEffect, type FormEvent } from "react";
 import { useParams, Link } from "react-router-dom";
 import {
   ArrowLeft,
@@ -24,11 +24,15 @@ import {
   PencilLine,
   Undo2,
   History,
+  RotateCcw,
 } from "lucide-react";
 import { toast } from "sonner";
 import {
   api,
   useWorkspace,
+  useCaseDetail,
+  useRemembered,
+  storage,
   money,
   balance,
   date,
@@ -55,9 +59,19 @@ export function CasePage() {
   const { id } = useParams(),
     { data, run } = useWorkspace();
   const { can } = useAuth();
-  const c = data.cases.find((c) => c.id === id);
-  const [tab, setTab] = useState("evidence"),
-    [payment, setPayment] = useState(false),
+  // Bootstrap carries only the case index. Evidence text, draft bodies and
+  // amendment history are fetched for the one case being looked at.
+  const { detail, loading: detailLoading, reload } = useCaseDetail(id);
+  const seenData = useRef(data);
+  useEffect(() => {
+    if (seenData.current === data) return;
+    seenData.current = data;
+    void reload();
+  }, [data, reload]);
+  // The index renders the header immediately; detail fills in behind it.
+  const c = detail || data.cases.find((c) => c.id === id);
+  const [tab, setTab] = useRemembered("case-tab", "evidence");
+  const [payment, setPayment] = useState(false),
     [task, setTask] = useState(false),
     [draft, setDraft] = useState<Draft | null>(null),
     [preview, setPreview] = useState<Evidence | null>(null),
@@ -81,23 +95,20 @@ export function CasePage() {
         }
       />
     );
-  const evidence = data.evidence.filter(
-      (e) => e.caseId === id && !e.archivedAt,
-    ),
-    documents = data.documents.filter((d) => d.caseId === id),
-    payments = data.payments.filter((p) => p.caseId === id),
-    tasks = data.tasks.filter((t) => t.caseId === id && !t.archivedAt),
-    checklist = data.checklist.filter((i) => i.caseId === id),
-    events = data.events.filter((e) => e.entityId === id),
-    amendments = data.amendments.filter(
-      (a) =>
-        (a.entityType === "case" && a.entityId === id) ||
-        (a.entityType === "payment" &&
-          payments.some((p) => p.id === a.entityId)),
-    );
+  const evidence = (detail?.evidence || []).filter((e) => !e.archivedAt),
+    documents = detail?.documents || [],
+    payments = detail?.payments || [],
+    tasks = (detail?.tasks || []).filter((t) => !t.archivedAt),
+    checklist = detail?.checklist || [],
+    events = detail?.events || [],
+    amendments = detail?.amendments || [];
   const locked = Boolean(c.archivedAt);
-  const unpaid = balance(data, c),
-    received = c.amount - unpaid;
+  // Until the detail arrives, the balance comes from the index so the panel is
+  // never blank or briefly wrong.
+  const received = detail
+    ? payments.reduce((sum, p) => sum + p.amount, 0)
+    : c.amount - balance(data, c);
+  const unpaid = c.amount - received;
   async function generate(ai = false) {
     setBusy(ai ? "ai" : "draft");
     const result = await run(
@@ -153,7 +164,7 @@ export function CasePage() {
         )}
       </PageHead>
       <ArchivedBanner record={c} entity="case" id={c.id} />
-      <div className="case-layout">
+      <div className="case-layout" aria-busy={detailLoading}>
         <div className="case-main">
           <section className="case-summary">
             <div className="section-title">
@@ -887,15 +898,70 @@ function PaymentForm({
   );
 }
 
+/**
+ * Unsaved letter text is held only in React state, so closing the tab used to
+ * lose it. The body is mirrored into local storage while it differs from the
+ * saved revision, and offered back on the next visit.
+ */
+const draftKey = (id: string) => `draft:${id}`;
+type StoredDraft = { revision: number; body: string; at: string };
+
+function readStoredDraft(draft: Draft): StoredDraft | null {
+  const raw = storage.read(draftKey(draft.id));
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw) as StoredDraft;
+    // A recovery is only meaningful against the revision it was typed over.
+    // If the draft moved on elsewhere, the stale text is dropped.
+    if (parsed.revision !== draft.revision || parsed.body === draft.body) {
+      storage.remove(draftKey(draft.id));
+      return null;
+    }
+    return parsed;
+  } catch {
+    storage.remove(draftKey(draft.id));
+    return null;
+  }
+}
+
 function DraftEditor({ draft, close }: { draft: Draft; close: () => void }) {
   const { run } = useWorkspace();
   const { can } = useAuth();
+  const [recovered] = useState(() => readStoredDraft(draft));
   const [current, setCurrent] = useState(draft),
-    [body, setBody] = useState(draft.body),
+    [body, setBody] = useState(recovered?.body ?? draft.body),
     [busy, setBusy] = useState(false);
+  const [showRecovery, setShowRecovery] = useState(Boolean(recovered));
   const [confirmDiscard, setConfirmDiscard] = useState(false);
   const keepButton = useRef<HTMLButtonElement>(null);
   const dirty = body !== current.body;
+
+  // Debounced so typing does not write on every keystroke.
+  useEffect(() => {
+    if (!dirty) {
+      storage.remove(draftKey(current.id));
+      return;
+    }
+    const timer = setTimeout(
+      () =>
+        storage.write(
+          draftKey(current.id),
+          JSON.stringify({
+            revision: current.revision,
+            body,
+            at: new Date().toISOString(),
+          }),
+        ),
+      600,
+    );
+    return () => clearTimeout(timer);
+  }, [body, dirty, current.id, current.revision]);
+
+  function discardRecovery() {
+    setBody(current.body);
+    setShowRecovery(false);
+    storage.remove(draftKey(current.id));
+  }
   function requestClose() {
     if (busy) return;
     if (!dirty) return close();
@@ -919,6 +985,8 @@ function DraftEditor({ draft, close }: { draft: Draft; close: () => void }) {
           if (result) {
             setCurrent(result);
             setConfirmDiscard(false);
+            setShowRecovery(false);
+            storage.remove(draftKey(result.id));
           }
           setBusy(false);
         }}
@@ -933,6 +1001,26 @@ function DraftEditor({ draft, close }: { draft: Draft; close: () => void }) {
               {current.provider} · revision {current.revision}
             </span>
           </div>
+          {showRecovery && recovered && (
+            <div className="recovery-note" role="status">
+              <RotateCcw size={16} />
+              <span>
+                Restored your unsaved edits from{" "}
+                {new Date(recovered.at).toLocaleString("en-IN", {
+                  dateStyle: "medium",
+                  timeStyle: "short",
+                })}
+                . They were never saved to the workspace.
+              </span>
+              <button
+                className="btn small-btn"
+                type="button"
+                onClick={discardRecovery}
+              >
+                Use saved version
+              </button>
+            </div>
+          )}
           <textarea
             className="letter-editor"
             aria-label="Letter content"
@@ -960,7 +1048,15 @@ function DraftEditor({ draft, close }: { draft: Draft; close: () => void }) {
                 >
                   Keep editing
                 </button>
-                <button className="btn danger" type="button" onClick={close}>
+                <button
+                  className="btn danger"
+                  type="button"
+                  onClick={() => {
+                    // An explicit discard must not leave the text recoverable.
+                    storage.remove(draftKey(current.id));
+                    close();
+                  }}
+                >
                   Discard changes
                 </button>
               </div>
