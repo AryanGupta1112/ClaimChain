@@ -1,6 +1,19 @@
 export type CaseKind = "payment" | "document" | "dispute";
 export type CaseStatus = "open" | "in_progress" | "resolved";
-export interface RecoveryCase {
+export type AmendmentKind = "correction" | "agreed_change";
+
+/** Records are never destroyed; they are archived out of the working views. */
+export interface Archivable {
+  archivedAt?: string | null;
+  archivedBy?: string;
+  archiveReason?: string;
+  /** Seeded demonstration record, not owner data. */
+  sample?: boolean;
+}
+export const isArchived = (record: Archivable) => Boolean(record.archivedAt);
+export const isLive = (record: Archivable) => !record.archivedAt;
+
+export interface RecoveryCase extends Archivable {
   id: string;
   number: string;
   title: string;
@@ -21,8 +34,14 @@ export interface Payment {
   reference: string;
   key: string;
   createdAt: string;
+  /** Set on a correcting entry: the id of the payment it reverses. */
+  reversalOf?: string;
+  /** Set on an original entry once a reversal has been recorded against it. */
+  reversedBy?: string;
+  /** Why the reversal was recorded. */
+  reason?: string;
 }
-export interface Evidence {
+export interface Evidence extends Archivable {
   id: string;
   caseId: string;
   name: string;
@@ -45,7 +64,7 @@ export interface Draft {
   updatedAt: string;
   provider: string;
 }
-export interface Task {
+export interface Task extends Archivable {
   id: string;
   caseId: string;
   title: string;
@@ -58,12 +77,12 @@ export interface CheckItem {
   label: string;
   done: boolean;
 }
-export interface Store {
+export interface Store extends Archivable {
   id: string;
   name: string;
   locality: string;
 }
-export interface Lot {
+export interface Lot extends Archivable {
   id: string;
   storeId: string;
   sku: string;
@@ -92,6 +111,26 @@ export interface Activity {
   detail: string;
   createdAt: string;
 }
+/**
+ * A field-level change with both sides recorded, so any single entry answers
+ * "what was this before?" without replaying the log. Entries are hash-chained:
+ * altering one breaks every digest after it.
+ */
+export interface Amendment {
+  id: string;
+  entityType: string;
+  entityId: string;
+  field: string;
+  from: string;
+  to: string;
+  kind: AmendmentKind;
+  reason: string;
+  actorId: string | null;
+  actorLabel: string;
+  createdAt: string;
+  previousDigest: string;
+  digest: string;
+}
 export interface Workspace {
   name: string;
   owner: string;
@@ -111,6 +150,7 @@ export interface State {
   lots: Lot[];
   transfers: Transfer[];
   events: Activity[];
+  amendments: Amendment[];
 }
 export interface Capabilities {
   bedrock: boolean;
@@ -128,4 +168,23 @@ export type CaseDetail = RecoveryCase & {
   tasks: Task[];
   checklist: CheckItem[];
   events: Activity[];
+  amendments: Amendment[];
 };
+
+/** Fields that may be amended, split by how materially they change the claim. */
+export const FINANCIAL_CASE_FIELDS = ["amount", "dueDate", "invoice"] as const;
+export const DESCRIPTIVE_CASE_FIELDS = ["title", "counterparty"] as const;
+export const AMENDABLE_CASE_FIELDS = [
+  ...FINANCIAL_CASE_FIELDS,
+  ...DESCRIPTIVE_CASE_FIELDS,
+] as const;
+export type AmendableCaseField = (typeof AMENDABLE_CASE_FIELDS)[number];
+
+export const ARCHIVABLE_ENTITIES = [
+  "case",
+  "task",
+  "evidence",
+  "store",
+  "lot",
+] as const;
+export type ArchivableEntity = (typeof ARCHIVABLE_ENTITIES)[number];
