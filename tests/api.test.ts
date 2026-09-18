@@ -1046,3 +1046,61 @@ test("the amendment chain detects a silently altered history entry", () => {
     brokenAt: 0,
   });
 });
+
+test("bootstrap is an index; full evidence text comes from the case detail", () =>
+  fixture(async (agent) => {
+    const bootstrap = (await agent.get("/api/bootstrap").expect(200)).body;
+    const seeded = bootstrap.evidence.find(
+      (item: { mime: string }) => item.mime === "text/plain",
+    );
+    assert.ok(seeded, "the sample workspace has text evidence");
+    assert.equal(seeded.text, "", "bootstrap elides the extracted text");
+    assert.ok(
+      seeded.textLength > 0,
+      "bootstrap still reports that text exists",
+    );
+    assert.ok(seeded.digest.length === 64, "metadata is intact");
+
+    const detail = (await agent.get(`/api/cases/${seeded.caseId}`).expect(200))
+      .body;
+    const full = detail.evidence.find(
+      (item: { id: string }) => item.id === seeded.id,
+    );
+    assert.equal(
+      full.text.length,
+      seeded.textLength,
+      "the case detail carries the full text",
+    );
+    assert.match(full.text, /FICTIONAL SAMPLE/);
+  }));
+
+test("draft bodies are elided from the index and present on the detail", () =>
+  fixture(async (agent) => {
+    const c = await paymentCase(agent, 90000);
+    const draft = (
+      await agent
+        .post(`/api/cases/${c.id}/documents`)
+        .send({ kind: "reminder" })
+        .expect(201)
+    ).body;
+    assert.ok(draft.body.length > 0, "creating a draft returns its body");
+
+    const bootstrap = (await agent.get("/api/bootstrap").expect(200)).body;
+    const indexed = bootstrap.documents.find(
+      (item: { id: string }) => item.id === draft.id,
+    );
+    assert.equal(indexed.body, "");
+    assert.equal(indexed.bodyLength, draft.body.length);
+    assert.equal(indexed.title, draft.title, "metadata survives");
+
+    const detail = (await agent.get(`/api/cases/${c.id}`).expect(200)).body;
+    assert.equal(detail.documents[0].body, draft.body);
+  }));
+
+test("workspace data is uncacheable while hashed assets are immutable", () =>
+  fixture(async (agent) => {
+    const bootstrap = await agent.get("/api/bootstrap").expect(200);
+    assert.equal(bootstrap.headers["cache-control"], "no-store");
+    const health = await agent.get("/api/health").expect(200);
+    assert.equal(health.headers["cache-control"], "no-store");
+  }));

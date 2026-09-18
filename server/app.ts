@@ -7,7 +7,7 @@ import multer from "multer";
 import { z } from "zod";
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync, writeFileSync, unlinkSync } from "node:fs";
-import { resolve, join } from "node:path";
+import { resolve, join, sep } from "node:path";
 import PDFDocument from "pdfkit";
 import {
   StoreDB,
@@ -133,8 +133,16 @@ const filterState = (state: State, user: AuthUser): State => {
     ...state,
     cases,
     payments: state.payments.filter((item) => caseIds.has(item.caseId)),
-    evidence: state.evidence.filter((item) => caseIds.has(item.caseId)),
-    documents: state.documents.filter((item) => caseIds.has(item.caseId)),
+    // Bootstrap is an index, not a full read. Extracted evidence text runs to
+    // 100k characters per record and draft bodies to 30k, and no list view
+    // renders either. They are dropped here and fetched per case from
+    // GET /api/cases/:id, which is what opening a case already needs.
+    evidence: state.evidence
+      .filter((item) => caseIds.has(item.caseId))
+      .map((item) => ({ ...item, text: "", textLength: item.text.length })),
+    documents: state.documents
+      .filter((item) => caseIds.has(item.caseId))
+      .map((item) => ({ ...item, body: "", bodyLength: item.body.length })),
     tasks: state.tasks.filter((item) => caseIds.has(item.caseId)),
     checklist: state.checklist.filter((item) => caseIds.has(item.caseId)),
     stores,
@@ -280,11 +288,15 @@ export function createApp(
   };
   app.disable("x-powered-by");
   app.use(express.json({ limit: "1mb" }));
-  app.use((_req, res, next) => {
+  app.use((req, res, next) => {
     res.setHeader("X-Content-Type-Options", "nosniff");
     res.setHeader("Referrer-Policy", "same-origin");
     res.setHeader("X-Frame-Options", "DENY");
-    res.setHeader("Cache-Control", "no-store");
+    // Workspace data must never be cached; the built frontend is content
+    // hashed by Vite, so a changed file always arrives under a new name and
+    // can be cached indefinitely. Caching those is handled at the static
+    // mount below; everything else stays uncacheable.
+    if (req.path.startsWith("/api")) res.setHeader("Cache-Control", "no-store");
     next();
   });
   app.use("/api", (req, _res, next) => {
@@ -1942,10 +1954,26 @@ export function createApp(
     next(new HttpError(404, "Endpoint not found")),
   );
   if (existsSync(resolve("dist/index.html"))) {
-    app.use(express.static(resolve("dist")));
-    app.get("/{*path}", (_req, res) =>
-      res.sendFile(resolve("dist/index.html")),
+    app.use(
+      express.static(resolve("dist"), {
+        setHeaders: (res, filePath) => {
+          // Vite emits /assets/<name>-<contenthash>.<ext>. A new build produces
+          // a new filename, so these can never go stale for a client.
+          res.setHeader(
+            "Cache-Control",
+            filePath.includes(`${sep}assets${sep}`)
+              ? "public, max-age=31536000, immutable"
+              : "no-cache",
+          );
+        },
+      }),
     );
+    // index.html must always be revalidated: it is the document that points at
+    // the current hashed bundle.
+    app.get("/{*path}", (_req, res) => {
+      res.setHeader("Cache-Control", "no-cache");
+      res.sendFile(resolve("dist/index.html"));
+    });
   }
   app.use((error: Error, _req: Request, res: Response, _next: NextFunction) => {
     if (error instanceof z.ZodError)

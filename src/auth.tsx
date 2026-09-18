@@ -10,7 +10,7 @@ import {
 import { Navigate, useLocation } from "react-router-dom";
 import type { AuthUser, Capability } from "../shared/auth";
 import { hasCapability } from "../shared/auth";
-import { api } from "./lib";
+import { api, storage } from "./lib";
 
 interface AuthContextValue {
   user: AuthUser | null;
@@ -53,6 +53,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       refresh,
       signOut: async () => {
         await api("/auth/logout", "POST");
+        // Recovered drafts and view preferences are per-viewer state. Signing
+        // out on a shared counter machine must not leave them for the next
+        // person. An expired session deliberately does not clear them, so
+        // unsaved work survives signing back in.
+        storage.clearAll();
         setUser(null);
       },
       can: (capability) => Boolean(user && hasCapability(user, capability)),

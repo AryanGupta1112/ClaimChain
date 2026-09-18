@@ -52,6 +52,8 @@ export interface Evidence extends Archivable {
   provider: string;
   createdAt: string;
   cloudKey?: string;
+  /** Present on the bootstrap index, where `text` is elided for payload size. */
+  textLength?: number;
 }
 export interface Draft {
   id: string;
@@ -63,6 +65,8 @@ export interface Draft {
   createdAt: string;
   updatedAt: string;
   provider: string;
+  /** Present on the bootstrap index, where `body` is elided for payload size. */
+  bodyLength?: number;
 }
 export interface Task extends Archivable {
   id: string;
