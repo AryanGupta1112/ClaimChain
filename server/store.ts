@@ -2,7 +2,7 @@ import { DatabaseSync } from "node:sqlite";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { randomUUID, createHash } from "node:crypto";
-import type { State } from "../shared/types.js";
+import type { State, Amendment, AmendmentKind } from "../shared/types.js";
 import { calendarDay } from "../shared/calendar.js";
 
 export const uid = () => randomUUID();
@@ -25,6 +25,77 @@ export function event(
     createdAt: now(),
   });
 }
+/**
+ * Canonical serialisation for the amendment hash chain. JSON array encoding
+ * fixes field order and keeps values unambiguous at their boundaries.
+ */
+const canonicalAmendment = (entry: Omit<Amendment, "digest">) =>
+  JSON.stringify([
+    entry.previousDigest,
+    entry.id,
+    entry.entityType,
+    entry.entityId,
+    entry.field,
+    entry.from,
+    entry.to,
+    entry.kind,
+    entry.reason,
+    entry.actorId ?? "",
+    entry.actorLabel,
+    entry.createdAt,
+  ]);
+
+/**
+ * Appends a field-level change carrying both sides, chained to the entry
+ * before it. Reading one entry answers "what was this before?" with no replay.
+ */
+export function amend(
+  state: State,
+  input: {
+    entityType: string;
+    entityId: string;
+    field: string;
+    from: string;
+    to: string;
+    kind: AmendmentKind;
+    reason: string;
+    actorId: string | null;
+    actorLabel: string;
+  },
+): Amendment {
+  const previousDigest = state.amendments.at(-1)?.digest || "";
+  const base = { ...input, id: uid(), createdAt: now(), previousDigest };
+  const entry: Amendment = {
+    ...base,
+    digest: createHash("sha256").update(canonicalAmendment(base)).digest("hex"),
+  };
+  state.amendments.push(entry);
+  return entry;
+}
+
+/**
+ * Recomputes the chain. Detects a silently edited or removed history entry.
+ * It does not defend against someone rewriting the entire chain, which needs
+ * an external anchor such as a signed timestamp.
+ */
+export function verifyAmendments(state: State): {
+  ok: boolean;
+  entries: number;
+  brokenAt: number | null;
+} {
+  let previousDigest = "";
+  for (let index = 0; index < state.amendments.length; index++) {
+    const entry = state.amendments[index];
+    const expected = createHash("sha256")
+      .update(canonicalAmendment({ ...entry, previousDigest }))
+      .digest("hex");
+    if (entry.previousDigest !== previousDigest || entry.digest !== expected)
+      return { ok: false, entries: state.amendments.length, brokenAt: index };
+    previousDigest = entry.digest;
+  }
+  return { ok: true, entries: state.amendments.length, brokenAt: null };
+}
+
 export function emptyState(): State {
   return {
     workspace: {
@@ -44,6 +115,7 @@ export function emptyState(): State {
     lots: [],
     transfers: [],
     events: [],
+    amendments: [],
   };
 }
 export function sampleState(): State {
@@ -182,6 +254,7 @@ export function sampleState(): State {
               ? "Original trade certificate was misplaced during the store relocation. Assemble the supporting records for a replacement request."
               : "Six cartons arrived damaged. Assemble delivery records and request a replacement from the supplier.",
         createdAt: new Date(Date.now() - (25 - index) * 86400000).toISOString(),
+        sample: true,
       });
       event(s, id, "case", "Case opened", `${counterparty}: ${title}`);
       if (kind !== "payment")
@@ -428,6 +501,11 @@ export function sampleState(): State {
       batch: "FC-0926",
     },
   ];
+  // Every seeded record is marked so the owner can clear the demonstration
+  // workspace in one action instead of living with fiction in their books.
+  s.stores.forEach((store) => (store.sample = true));
+  s.lots.forEach((lot) => (lot.sample = true));
+  s.tasks.forEach((task) => (task.sample = true));
   return s;
 }
 
@@ -476,6 +554,7 @@ export class StoreDB {
             text: contents,
             provider: "Local text",
             createdAt: now(),
+            sample: true,
           });
         }
       }
@@ -485,13 +564,18 @@ export class StoreDB {
     }
   }
   read(): State {
-    return JSON.parse(
+    const state = JSON.parse(
       (
         this.db.prepare("SELECT payload FROM workspace WHERE id=1").get() as {
           payload: string;
         }
       ).payload,
-    );
+    ) as State;
+    // Workspaces written before amendments existed carry no such array. The
+    // blob store has no migration runner, so absent collections are backfilled
+    // on read rather than failing at the first append.
+    if (!Array.isArray(state.amendments)) state.amendments = [];
+    return state;
   }
   mutate<T>(fn: (state: State) => T): T {
     this.db.exec("BEGIN IMMEDIATE");

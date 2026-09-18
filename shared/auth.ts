@@ -11,6 +11,7 @@ export const CAPABILITIES = [
   "view_cases",
   "create_cases",
   "manage_cases",
+  "amend_financials",
   "record_payments",
   "manage_evidence",
   "prepare_documents",

@@ -9,7 +9,15 @@ import { createHash } from "node:crypto";
 import { existsSync, readFileSync, writeFileSync, unlinkSync } from "node:fs";
 import { resolve, join } from "node:path";
 import PDFDocument from "pdfkit";
-import { StoreDB, uid, now, day, event } from "./store.js";
+import {
+  StoreDB,
+  uid,
+  now,
+  day,
+  event,
+  amend,
+  verifyAmendments,
+} from "./store.js";
 import { AuthProblem, AuthService } from "./auth.js";
 import { MailDeliveryError, sendAuthCode } from "./mailer.js";
 import { SimulationService } from "./simulator.js";
@@ -19,7 +27,16 @@ import {
   extractImage,
   mirrorEvidence,
 } from "./aws.js";
-import type { State, RecoveryCase, Draft } from "../shared/types.js";
+import {
+  FINANCIAL_CASE_FIELDS,
+  type State,
+  type RecoveryCase,
+  type Draft,
+  type Payment,
+  type Lot,
+  type Archivable,
+  type AmendableCaseField,
+} from "../shared/types.js";
 import {
   canAccessCase,
   canAccessStore,
@@ -129,6 +146,17 @@ const filterState = (state: State, user: AuthUser): State => {
             entityIds.has(item.entityId) || user.role !== "recovery_operator",
         )
       : [],
+    // Amendment history carries old field values, so it is scoped to the
+    // records the caller may already see.
+    amendments: state.amendments.filter(
+      (item) =>
+        (item.entityType === "case" && caseIds.has(item.entityId)) ||
+        (item.entityType === "payment" &&
+          state.payments.some(
+            (payment) =>
+              payment.id === item.entityId && caseIds.has(payment.caseId),
+          )),
+    ),
   };
 };
 
@@ -717,6 +745,12 @@ export function createApp(
       tasks: s.tasks.filter((t) => t.caseId === c.id),
       checklist: s.checklist.filter((t) => t.caseId === c.id),
       events: s.events.filter((e) => e.entityId === c.id),
+      amendments: s.amendments.filter(
+        (a) =>
+          (a.entityType === "case" && a.entityId === c.id) ||
+          (a.entityType === "payment" &&
+            s.payments.some((p) => p.id === a.entityId && p.caseId === c.id)),
+      ),
     });
   });
   app.patch("/api/cases/:id", requireCapability("manage_cases"), (req, res) => {
@@ -783,6 +817,8 @@ export function createApp(
         db.mutate((s) => {
           const c = findCase(s, pathId(req));
           requireCase(req, c.id);
+          if (c.archivedAt)
+            fail(409, "Restore this case before recording payments");
           if (c.kind !== "payment")
             fail(409, "Payments belong to payment recovery cases");
           const duplicate = s.payments.find(
@@ -800,10 +836,15 @@ export function createApp(
               );
             return duplicate;
           }
+          // A reference is only taken by a live original. Once an entry has
+          // been reversed the same bank reference can be recorded again with
+          // the corrected amount, which is the whole point of a reversal.
           if (
             s.payments.some(
               (p) =>
                 p.caseId === c.id &&
+                !p.reversalOf &&
+                !p.reversedBy &&
                 p.reference.toLowerCase() === input.reference.toLowerCase(),
             )
           )
@@ -864,6 +905,8 @@ export function createApp(
         const result = db.mutate((s) => {
           const c = findCase(s, pathId(req));
           requireCase(req, c.id);
+          if (c.archivedAt)
+            fail(409, "Restore this case before attaching evidence");
           const duplicate = s.evidence.find(
             (e) => e.caseId === c.id && e.digest === digest,
           );
@@ -993,6 +1036,7 @@ export function createApp(
       const snapshot = db.read(),
         c = findCase(snapshot, pathId(req));
       requireCase(req, c.id);
+      if (c.archivedAt) fail(409, "Restore this case before preparing a draft");
       if (input.ai && !capabilities().bedrock)
         fail(409, "Bedrock is not configured");
       const body = input.ai
@@ -1120,7 +1164,13 @@ export function createApp(
         if (!payments.length) doc.text("No payments recorded.");
         payments.forEach((p) =>
           doc.text(
-            `${p.date} | ${rupees(p.amount)} | ${p.reference} | Owner recorded`,
+            `${p.date} | ${rupees(p.amount)} | ${p.reference} | ${
+              p.reversalOf
+                ? `Correcting entry - ${p.reason || "reversal"}`
+                : p.reversedBy
+                  ? "Owner recorded, later reversed"
+                  : "Owner recorded"
+            }`,
           ),
         );
         section("Evidence manifest");
@@ -1139,6 +1189,29 @@ export function createApp(
           .forEach((i) =>
             doc.text(`${i.done ? "[Complete]" : "[Pending]"} ${i.label}`),
           );
+        section("Corrections and amendments");
+        const amendments = s.amendments.filter(
+          (a) =>
+            (a.entityType === "case" && a.entityId === c.id) ||
+            (a.entityType === "payment" &&
+              s.payments.some((p) => p.id === a.entityId && p.caseId === c.id)),
+        );
+        if (!amendments.length)
+          doc.text("No recorded fact on this case has been amended.");
+        amendments.forEach((a) => {
+          doc.text(
+            `${a.createdAt.slice(0, 10)} | ${a.field}: "${a.from}" changed to "${a.to}"`,
+          );
+          doc.text(
+            `${
+              a.kind === "correction"
+                ? "Correction of a recording error"
+                : "Change agreed with the counterparty"
+            } by ${a.actorLabel}. Reason: ${a.reason}`,
+          );
+          doc.fontSize(8).text(`Chain digest: ${a.digest}`);
+          doc.fontSize(10).moveDown(0.3);
+        });
         section("Timeline");
         s.events
           .filter((e) => e.entityId === c.id)
@@ -1158,7 +1231,7 @@ export function createApp(
           });
         section("Packet scope");
         doc.text(
-          "Contains recorded facts, evidence manifest, extracted text and prepared drafts. Original files are downloaded separately. Owner-recorded payments are not bank verified. Hashes identify file bytes, not authenticity. No correspondence has been sent and no legal filing has been made by this export.",
+          "Contains recorded facts, evidence manifest, extracted text, prepared drafts and every amendment made to this case. Original files are downloaded separately. Owner-recorded payments are not bank verified. A reversed payment is retained beside its correcting entry rather than removed. Amendment digests chain each entry to the one before it, which detects a silently altered history but is not an independently notarised timestamp. Hashes identify file bytes, not authenticity. No correspondence has been sent and no legal filing has been made by this export.",
         );
       });
     },
@@ -1169,8 +1242,10 @@ export function createApp(
       .parse(req.body);
     res.status(201).json(
       db.mutate((s) => {
-        findCase(s, input.caseId);
+        const owner = findCase(s, input.caseId);
         requireCase(req, input.caseId);
+        if (owner.archivedAt)
+          fail(409, "Restore this case before scheduling follow-ups");
         const task = { ...input, id: uid(), completedAt: null };
         s.tasks.push(task);
         event(
@@ -1218,6 +1293,8 @@ export function createApp(
             fail(404, "Requirement not found");
           const c = findCase(s, item.caseId);
           requireCase(req, c.id);
+          if (c.archivedAt)
+            fail(409, "Restore this case before changing its requirements");
           if (!input.done && c.status === "resolved")
             fail(409, "Reopen the case before changing completed requirements");
           if (item.done !== input.done) {
@@ -1277,7 +1354,11 @@ export function createApp(
     requireStore(req, input.storeId);
     res.status(201).json(
       db.mutate((s) => {
-        if (!s.stores.some((store) => store.id === input.storeId))
+        if (
+          !s.stores.some(
+            (store) => store.id === input.storeId && !store.archivedAt,
+          )
+        )
           fail(404, "Store not found");
         const existing = s.lots.find(
           (l) =>
@@ -1318,7 +1399,13 @@ export function createApp(
             fail(404, "Stock lot not found");
           requireStore(req, lot.storeId);
           requireStore(req, input.destination);
-          if (!s.stores.some((store) => store.id === input.destination))
+          if (lot.archivedAt)
+            fail(409, "This stock lot is archived. Restore it to transfer.");
+          if (
+            !s.stores.some(
+              (store) => store.id === input.destination && !store.archivedAt,
+            )
+          )
             fail(404, "Destination store not found");
           if (lot.storeId === input.destination)
             fail(400, "Choose a different destination store");
@@ -1411,6 +1498,446 @@ export function createApp(
       );
     },
   );
+  // ------------------------------------------------------------------
+  // Corrections. Nothing below destroys a record: a payment is undone by
+  // a compensating entry, a case field is amended with both sides kept,
+  // and removal is an archive that stays in the audit trail and packets.
+  // ------------------------------------------------------------------
+  const actorOf = (req: Request) => ({
+    actorId: req.auth!.user.id,
+    actorLabel: req.auth!.user.displayName || req.auth!.user.username,
+  });
+
+  app.post(
+    "/api/payments/:id/reverse",
+    requireCapability("record_payments"),
+    (req, res) => {
+      const input = z
+        .object({ reason: z.string().trim().min(3).max(500) })
+        .parse(req.body);
+      res.status(201).json(
+        db.mutate((s) => {
+          const original =
+            s.payments.find((p) => p.id === pathId(req)) ||
+            fail(404, "Payment not found");
+          const c = findCase(s, original.caseId);
+          requireCase(req, c.id);
+          if (original.reversalOf)
+            fail(409, "A reversal entry cannot itself be reversed");
+          if (original.reversedBy)
+            fail(409, "This payment has already been reversed");
+          const reversal: Payment = {
+            id: uid(),
+            caseId: original.caseId,
+            amount: -original.amount,
+            date: day(),
+            reference: `Reversal of ${original.reference}`,
+            key: `reversal:${original.id}`,
+            createdAt: now(),
+            reversalOf: original.id,
+            reason: input.reason,
+          };
+          original.reversedBy = reversal.id;
+          s.payments.push(reversal);
+          // A reversal legitimately reopens a case the original settled, so
+          // this bypasses the manual "a fully paid case stays resolved" rule.
+          const due = outstanding(s, c);
+          if (due === 0) c.status = "resolved";
+          else if (c.status === "resolved") c.status = "in_progress";
+          amend(s, {
+            entityType: "payment",
+            entityId: original.id,
+            field: "amount",
+            from: String(original.amount),
+            to: "0",
+            kind: "correction",
+            reason: input.reason,
+            ...actorOf(req),
+          });
+          event(
+            s,
+            c.id,
+            "case",
+            "Payment reversed",
+            `${rupees(original.amount)} - ${original.reference}: ${input.reason}`,
+          );
+          auth.audit({
+            actor: req.auth!.user,
+            targetId: original.id,
+            action: "Payment reversed",
+            detail: `${rupees(original.amount)} on ${c.number}`,
+            ...requestMeta(req),
+          });
+          return reversal;
+        }),
+      );
+    },
+  );
+
+  const applyCaseField = (
+    target: RecoveryCase,
+    field: AmendableCaseField,
+    value: string | number,
+  ) => {
+    if (field === "amount") target.amount = Number(value);
+    else target[field] = String(value);
+  };
+
+  app.post(
+    "/api/cases/:id/amend",
+    requireCapability("manage_cases"),
+    (req, res) => {
+      const input = z
+        .object({
+          changes: z.object({
+            title: text.optional(),
+            counterparty: text.optional(),
+            invoice: z.string().trim().max(200).optional(),
+            amount: z.number().int().min(0).max(100_000_000_00).optional(),
+            dueDate: isoDate.optional(),
+          }),
+          kind: z.enum(["correction", "agreed_change"]),
+          reason: z.string().trim().min(3).max(500),
+        })
+        .parse(req.body);
+      const fields = (
+        Object.keys(input.changes) as AmendableCaseField[]
+      ).filter((field) => input.changes[field] !== undefined);
+      if (!fields.length) fail(400, "Provide at least one field to amend");
+      if (
+        fields.some((field) =>
+          (FINANCIAL_CASE_FIELDS as readonly string[]).includes(field),
+        ) &&
+        !hasCapability(req.auth!.user, "amend_financials")
+      )
+        throw new AuthProblem(
+          403,
+          "FORBIDDEN",
+          "Changing an invoice amount, due date or reference needs the amend_financials permission",
+        );
+      res.json(
+        db.mutate((s) => {
+          const c = findCase(s, pathId(req));
+          requireCase(req, c.id);
+          if (c.archivedAt) fail(409, "Restore this case before amending it");
+          if (input.changes.amount !== undefined) {
+            const next = input.changes.amount;
+            if (c.kind === "payment" && next <= 0)
+              fail(400, "A payment case needs a positive amount");
+            if (c.kind !== "payment" && next !== 0)
+              fail(400, "Document and dispute cases carry no amount");
+            const received = c.amount - outstanding(s, c);
+            if (next < received)
+              fail(
+                409,
+                `Amount cannot go below the ${rupees(received)} already recorded as received. Reverse a payment first.`,
+              );
+          }
+          const entries = fields.flatMap((field) => {
+            const next = input.changes[field]!;
+            const previous = c[field];
+            if (String(previous) === String(next)) return [];
+            const entry = amend(s, {
+              entityType: "case",
+              entityId: c.id,
+              field,
+              from: String(previous),
+              to: String(next),
+              kind: input.kind,
+              reason: input.reason,
+              ...actorOf(req),
+            });
+            applyCaseField(c, field, next);
+            return [entry];
+          });
+          if (!entries.length)
+            fail(409, "Those values already match the current record");
+          if (c.kind === "payment") {
+            const due = outstanding(s, c);
+            if (due === 0) c.status = "resolved";
+            else if (c.status === "resolved") c.status = "in_progress";
+          }
+          event(
+            s,
+            c.id,
+            "case",
+            input.kind === "correction"
+              ? "Case corrected"
+              : "Case change agreed",
+            `${entries.map((entry) => entry.field).join(", ")}: ${input.reason}`,
+          );
+          auth.audit({
+            actor: req.auth!.user,
+            targetId: c.id,
+            action: "Case amended",
+            detail: `${c.number} ${entries
+              .map((entry) => `${entry.field} ${entry.from} to ${entry.to}`)
+              .join("; ")}`,
+            ...requestMeta(req),
+          });
+          return { case: c, amendments: entries };
+        }),
+      );
+    },
+  );
+
+  const archiveTarget = (
+    req: Request,
+    s: State,
+    entity: string,
+    id: string,
+  ): {
+    capability: Capability;
+    record: Archivable & { id: string };
+    entityType: string;
+    label: string;
+  } => {
+    if (entity === "case") {
+      const c = findCase(s, id);
+      requireCase(req, c.id);
+      return {
+        capability: "manage_cases",
+        record: c,
+        entityType: "case",
+        label: `${c.number} ${c.counterparty}`,
+      };
+    }
+    if (entity === "task") {
+      const task =
+        s.tasks.find((item) => item.id === id) ||
+        fail(404, "Follow-up not found");
+      requireCase(req, task.caseId);
+      return {
+        capability: "manage_tasks",
+        record: task,
+        entityType: "task",
+        label: task.title,
+      };
+    }
+    if (entity === "evidence") {
+      const item =
+        s.evidence.find((record) => record.id === id) ||
+        fail(404, "Evidence not found");
+      requireCase(req, item.caseId);
+      return {
+        capability: "manage_evidence",
+        record: item,
+        entityType: "evidence",
+        label: item.name,
+      };
+    }
+    if (entity === "store") {
+      const store =
+        s.stores.find((item) => item.id === id) || fail(404, "Store not found");
+      requireStore(req, store.id);
+      return {
+        capability: "manage_workspace",
+        record: store,
+        entityType: "store",
+        label: `${store.name}, ${store.locality}`,
+      };
+    }
+    if (entity === "lot") {
+      const lot =
+        s.lots.find((item) => item.id === id) ||
+        fail(404, "Stock lot not found");
+      requireStore(req, lot.storeId);
+      return {
+        capability: "manage_inventory",
+        record: lot,
+        entityType: "stock",
+        label: `${lot.product} (${lot.batch})`,
+      };
+    }
+    return fail(400, "Unknown record type");
+  };
+
+  const activeTransfer = (status: string) =>
+    ["reserved", "dispatched"].includes(status);
+
+  /** Archiving must not strand a record that something live still points at. */
+  const archiveGuard = (
+    s: State,
+    entity: string,
+    record: Archivable & { id: string },
+  ) => {
+    if (entity === "store") {
+      if (s.lots.some((lot) => lot.storeId === record.id && !lot.archivedAt))
+        fail(409, "Archive or move this store's stock lots first");
+      if (
+        s.transfers.some(
+          (transfer) =>
+            activeTransfer(transfer.status) &&
+            (transfer.destination === record.id ||
+              s.lots.some(
+                (lot) => lot.id === transfer.lotId && lot.storeId === record.id,
+              )),
+        )
+      )
+        fail(409, "Settle this store's active transfers first");
+    }
+    if (entity === "lot") {
+      const lot = record as Lot;
+      if (lot.reserved > 0)
+        fail(409, "Cancel the reservations on this lot before archiving it");
+      if (
+        s.transfers.some(
+          (transfer) =>
+            transfer.lotId === lot.id && activeTransfer(transfer.status),
+        )
+      )
+        fail(409, "This lot has an active transfer");
+    }
+  };
+
+  app.post("/api/archive/:entity/:id", (req, res) => {
+    const input = z
+      .object({ reason: z.string().trim().min(3).max(500) })
+      .parse(req.body);
+    const entity = String(req.params.entity);
+    res.json(
+      db.mutate((s) => {
+        const target = archiveTarget(req, s, entity, pathId(req));
+        if (!hasCapability(req.auth!.user, target.capability))
+          throw new AuthProblem(
+            403,
+            "FORBIDDEN",
+            "You do not have permission for this action",
+          );
+        if (target.record.archivedAt)
+          fail(409, "This record is already archived");
+        archiveGuard(s, entity, target.record);
+        target.record.archivedAt = now();
+        target.record.archivedBy = actorOf(req).actorLabel;
+        target.record.archiveReason = input.reason;
+        event(
+          s,
+          target.record.id,
+          target.entityType,
+          "Record archived",
+          `${target.label}: ${input.reason}`,
+        );
+        auth.audit({
+          actor: req.auth!.user,
+          targetId: target.record.id,
+          action: "Record archived",
+          detail: `${entity}: ${target.label}`,
+          ...requestMeta(req),
+        });
+        return target.record;
+      }),
+    );
+  });
+
+  app.post("/api/restore/:entity/:id", (req, res) => {
+    const entity = String(req.params.entity);
+    res.json(
+      db.mutate((s) => {
+        const target = archiveTarget(req, s, entity, pathId(req));
+        if (!hasCapability(req.auth!.user, target.capability))
+          throw new AuthProblem(
+            403,
+            "FORBIDDEN",
+            "You do not have permission for this action",
+          );
+        if (!target.record.archivedAt) fail(409, "This record is not archived");
+        if (entity === "lot") {
+          const lot = target.record as Lot;
+          if (
+            s.stores.some(
+              (store) => store.id === lot.storeId && store.archivedAt,
+            )
+          )
+            fail(409, "Restore the owning store first");
+        }
+        if (entity === "task" || entity === "evidence") {
+          const owner = (target.record as unknown as { caseId: string }).caseId;
+          if (s.cases.some((c) => c.id === owner && c.archivedAt))
+            fail(409, "Restore the case first");
+        }
+        target.record.archivedAt = null;
+        delete target.record.archivedBy;
+        delete target.record.archiveReason;
+        event(
+          s,
+          target.record.id,
+          target.entityType,
+          "Record restored",
+          target.label,
+        );
+        auth.audit({
+          actor: req.auth!.user,
+          targetId: target.record.id,
+          action: "Record restored",
+          detail: `${entity}: ${target.label}`,
+          ...requestMeta(req),
+        });
+        return target.record;
+      }),
+    );
+  });
+
+  app.post(
+    "/api/workspace/clear-sample",
+    requireCapability("manage_workspace"),
+    (req, res) => {
+      res.json(
+        db.mutate((s) => {
+          const at = now();
+          const by = actorOf(req).actorLabel;
+          const reason = "Seeded demonstration record cleared by the owner";
+          const held: string[] = [];
+          let archived = 0;
+          const sweep = (
+            collection: (Archivable & { id: string })[],
+            entity: string,
+            label: (record: never) => string,
+          ) => {
+            for (const record of collection) {
+              if (!record.sample || record.archivedAt) continue;
+              try {
+                archiveGuard(s, entity, record);
+              } catch {
+                held.push(label(record as never));
+                continue;
+              }
+              record.archivedAt = at;
+              record.archivedBy = by;
+              record.archiveReason = reason;
+              archived++;
+            }
+          };
+          sweep(s.cases, "case", (c: RecoveryCase) => c.number);
+          sweep(s.tasks, "task", (t: { title: string }) => t.title);
+          sweep(s.evidence, "evidence", (e: { name: string }) => e.name);
+          sweep(s.lots, "lot", (l: Lot) => l.product);
+          sweep(s.stores, "store", (store: { name: string }) => store.name);
+          s.workspace.sample = false;
+          event(
+            s,
+            "workspace",
+            "workspace",
+            "Sample data cleared",
+            held.length
+              ? `${archived} seeded records archived; ${held.length} held by live activity`
+              : `${archived} seeded records archived`,
+          );
+          auth.audit({
+            actor: req.auth!.user,
+            action: "Sample data cleared",
+            detail: `${archived} archived, ${held.length} held`,
+            ...requestMeta(req),
+          });
+          return { archived, held };
+        }),
+      );
+    },
+  );
+
+  app.get("/api/integrity", requireCapability("view_activity"), (_req, res) =>
+    res.json(verifyAmendments(db.read())),
+  );
+
   app.use("/api", (_req, _res, next) =>
     next(new HttpError(404, "Endpoint not found")),
   );

@@ -20,6 +20,10 @@ import {
   CloudUpload,
   ScanText,
   Paperclip,
+  Archive,
+  PencilLine,
+  Undo2,
+  History,
 } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -37,8 +41,15 @@ import {
   Empty,
 } from "./lib";
 import { TaskForm } from "./App";
-import type { Draft, Evidence, RecoveryCase } from "../shared/types";
+import type { Draft, Evidence, Payment, RecoveryCase } from "../shared/types";
 import { useAuth } from "./auth";
+import {
+  AmendCaseForm,
+  AmendmentHistory,
+  ArchiveForm,
+  ArchivedBanner,
+  ReversePaymentForm,
+} from "./Corrections";
 
 export function CasePage() {
   const { id } = useParams(),
@@ -51,6 +62,9 @@ export function CasePage() {
     [draft, setDraft] = useState<Draft | null>(null),
     [preview, setPreview] = useState<Evidence | null>(null),
     [notes, setNotes] = useState(false),
+    [amend, setAmend] = useState(false),
+    [archive, setArchive] = useState(false),
+    [reverse, setReverse] = useState<Payment | null>(null),
     [busy, setBusy] = useState("");
   const input = useRef<HTMLInputElement>(null);
   const [pendingChecks, setPendingChecks] = useState<Record<string, boolean>>(
@@ -67,12 +81,21 @@ export function CasePage() {
         }
       />
     );
-  const evidence = data.evidence.filter((e) => e.caseId === id),
+  const evidence = data.evidence.filter(
+      (e) => e.caseId === id && !e.archivedAt,
+    ),
     documents = data.documents.filter((d) => d.caseId === id),
     payments = data.payments.filter((p) => p.caseId === id),
-    tasks = data.tasks.filter((t) => t.caseId === id),
+    tasks = data.tasks.filter((t) => t.caseId === id && !t.archivedAt),
     checklist = data.checklist.filter((i) => i.caseId === id),
-    events = data.events.filter((e) => e.entityId === id);
+    events = data.events.filter((e) => e.entityId === id),
+    amendments = data.amendments.filter(
+      (a) =>
+        (a.entityType === "case" && a.entityId === id) ||
+        (a.entityType === "payment" &&
+          payments.some((p) => p.id === a.entityId)),
+    );
+  const locked = Boolean(c.archivedAt);
   const unpaid = balance(data, c),
     received = c.amount - unpaid;
   async function generate(ai = false) {
@@ -110,6 +133,18 @@ export function CasePage() {
       </Link>
       <PageHead title={c.title} description={`${c.number} · ${c.counterparty}`}>
         <Badge status={c.status} />
+        {can("manage_cases") && !locked && (
+          <button className="btn" onClick={() => setAmend(true)}>
+            <PencilLine size={16} />
+            Amend case
+          </button>
+        )}
+        {can("manage_cases") && !locked && (
+          <button className="btn" onClick={() => setArchive(true)}>
+            <Archive size={16} />
+            Archive
+          </button>
+        )}
         {can("export_packets") && (
           <a className="btn" href={`/api/cases/${id}/packet`} download>
             <Download size={16} />
@@ -117,6 +152,7 @@ export function CasePage() {
           </a>
         )}
       </PageHead>
+      <ArchivedBanner record={c} entity="case" id={c.id} />
       <div className="case-layout">
         <div className="case-main">
           <section className="case-summary">
@@ -176,6 +212,7 @@ export function CasePage() {
               ["evidence", "Evidence", evidence.length],
               ["documents", "Documents", documents.length],
               ["timeline", "Timeline", events.length],
+              ["history", "Amendments", amendments.length],
               ...(c.kind === "payment"
                 ? [["payments", "Payments", payments.length]]
                 : []),
@@ -221,7 +258,7 @@ export function CasePage() {
               {can("manage_evidence") && (
                 <button
                   className="upload-zone"
-                  disabled={!!busy}
+                  disabled={!!busy || locked}
                   onClick={() => input.current?.click()}
                 >
                   <span className="upload-icon">
@@ -330,7 +367,7 @@ export function CasePage() {
                       <button
                         className="btn"
                         onClick={() => void generate()}
-                        disabled={!!busy}
+                        disabled={!!busy || locked}
                       >
                         <FileText size={16} />
                         Prepare draft
@@ -360,6 +397,22 @@ export function CasePage() {
               ))}
             </div>
           )}
+          {tab === "history" && (
+            <section>
+              <div className="section-title">
+                <div>
+                  <h2>
+                    <History size={17} /> Amendment history
+                  </h2>
+                  <p>
+                    Every change to a recorded fact, with its previous value and
+                    the reason given.
+                  </p>
+                </div>
+              </div>
+              <AmendmentHistory amendments={amendments} />
+            </section>
+          )}
           {tab === "payments" && (
             <section>
               {payments.length ? (
@@ -371,15 +424,56 @@ export function CasePage() {
                           <th>Date</th>
                           <th>Reference</th>
                           <th>Received</th>
+                          <th>
+                            <span className="sr-only">Correct entry</span>
+                          </th>
                         </tr>
                       </thead>
                       <tbody>
                         {payments.map((p) => (
-                          <tr key={p.id}>
+                          <tr
+                            key={p.id}
+                            className={
+                              p.reversalOf
+                                ? "ledger-reversal"
+                                : p.reversedBy
+                                  ? "ledger-reversed"
+                                  : ""
+                            }
+                          >
                             <td>{date(p.date)}</td>
-                            <td>{p.reference}</td>
-                            <td className="money-cell green-text">
+                            <td>
+                              {p.reference}
+                              {p.reversalOf && (
+                                <small className="ledger-note">
+                                  Correcting entry - {p.reason}
+                                </small>
+                              )}
+                              {p.reversedBy && (
+                                <small className="ledger-note">
+                                  Reversed; retained for the record
+                                </small>
+                              )}
+                            </td>
+                            <td
+                              className={`money-cell ${p.amount < 0 ? "overdue-text" : "green-text"}`}
+                            >
                               {money(p.amount)}
+                            </td>
+                            <td className="row-action">
+                              {can("record_payments") &&
+                                !locked &&
+                                !p.reversalOf &&
+                                !p.reversedBy && (
+                                  <button
+                                    className="icon-btn"
+                                    title={`Reverse ${p.reference}`}
+                                    aria-label={`Reverse payment ${p.reference}`}
+                                    onClick={() => setReverse(p)}
+                                  >
+                                    <Undo2 size={16} />
+                                  </button>
+                                )}
                             </td>
                           </tr>
                         ))}
@@ -388,7 +482,8 @@ export function CasePage() {
                   </div>
                   <p className="small-note">
                     Payments are owner-recorded receipts, not bank-verified
-                    transactions.
+                    transactions. A wrong entry is corrected by recording a
+                    reversal beside it, never by deleting it.
                   </p>
                 </>
               ) : (
@@ -428,7 +523,7 @@ export function CasePage() {
                 <button
                   className="btn primary full-width"
                   onClick={() => setPayment(true)}
-                  disabled={unpaid <= 0}
+                  disabled={unpaid <= 0 || locked}
                 >
                   <Plus size={17} />
                   {unpaid <= 0 ? "Payment complete" : "Record payment"}
@@ -495,7 +590,7 @@ export function CasePage() {
               {can("prepare_documents") && (
                 <button
                   className="action-button"
-                  disabled={!!busy}
+                  disabled={!!busy || locked}
                   onClick={() => void generate()}
                 >
                   <span className="action-icon">
@@ -514,7 +609,7 @@ export function CasePage() {
               {can("prepare_documents") && data.capabilities.bedrock && (
                 <button
                   className="action-button"
-                  disabled={!!busy}
+                  disabled={!!busy || locked}
                   onClick={() => void generate(true)}
                 >
                   <span className="action-icon">
@@ -528,7 +623,11 @@ export function CasePage() {
                 </button>
               )}
               {can("manage_tasks") && (
-                <button className="action-button" onClick={() => setTask(true)}>
+                <button
+                  className="action-button"
+                  disabled={locked}
+                  onClick={() => setTask(true)}
+                >
                   <span className="action-icon">
                     <CalendarDays size={18} />
                   </span>
@@ -598,6 +697,20 @@ export function CasePage() {
       {draft && <DraftEditor draft={draft} close={() => setDraft(null)} />}
       {notes && can("manage_cases") && (
         <NotesEditor c={c} close={() => setNotes(false)} />
+      )}
+      {amend && can("manage_cases") && (
+        <AmendCaseForm c={c} close={() => setAmend(false)} />
+      )}
+      {archive && can("manage_cases") && (
+        <ArchiveForm
+          entity="case"
+          id={c.id}
+          label={c.number}
+          close={() => setArchive(false)}
+        />
+      )}
+      {reverse && can("record_payments") && (
+        <ReversePaymentForm payment={reverse} close={() => setReverse(null)} />
       )}
       {preview && (
         <Modal title={preview.name} close={() => setPreview(null)} wide>

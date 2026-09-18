@@ -28,6 +28,7 @@ import {
 } from "./lib";
 import type { Lot } from "../shared/types";
 import { useAuth } from "./auth";
+import { ArchiveForm, RestoreButton } from "./Corrections";
 
 export function StockPage() {
   const { data, run } = useWorkspace();
@@ -38,19 +39,30 @@ export function StockPage() {
     [create, setCreate] = useState(false),
     [newStore, setNewStore] = useState(false),
     [lot, setLot] = useState<Lot | null>(null),
+    [archiveLot, setArchiveLot] = useState<Lot | null>(null),
     [busy, setBusy] = useState("");
+  // Archived stock and stores keep their history but leave the working views.
+  const showArchived = store === "archived";
+  const liveStores = data.stores.filter((s) => !s.archivedAt);
   const lots = data.lots.filter(
     (l) =>
       `${l.product} ${l.sku} ${l.batch}`
         .toLowerCase()
         .includes(query.toLowerCase()) &&
-      (store === "all" || l.storeId === store),
+      (showArchived
+        ? l.archivedAt
+        : !l.archivedAt && (store === "all" || l.storeId === store)),
   );
   const active = data.transfers.filter((t) =>
     ["reserved", "dispatched"].includes(t.status),
   );
+  // A transfer whose lot is archived would otherwise render from a missing
+  // record, so transfers are scoped to lots that are still present.
+  const visibleTransfers = data.transfers.filter((t) =>
+    data.lots.some((l) => l.id === t.lotId && !l.archivedAt),
+  );
   const inventoryPages = usePagination(lots, 6);
-  const transferPages = usePagination(data.transfers, 6);
+  const transferPages = usePagination(visibleTransfers, 6);
   return (
     <>
       <PageHead
@@ -67,7 +79,7 @@ export function StockPage() {
           <button
             className="btn primary"
             onClick={() => setCreate(true)}
-            disabled={!data.stores.length}
+            disabled={!liveStores.length}
           >
             <Plus size={17} />
             List stock
@@ -78,7 +90,7 @@ export function StockPage() {
         <div>
           <StoreIcon size={21} />
           <span>
-            <strong>{data.stores.length}</strong> connected stores
+            <strong>{liveStores.length}</strong> connected stores
           </span>
         </div>
         <div>
@@ -87,7 +99,10 @@ export function StockPage() {
             <strong>
               {
                 data.lots.filter(
-                  (l) => l.quantity - l.reserved > 0 && l.expiry >= today(),
+                  (l) =>
+                    l.quantity - l.reserved > 0 &&
+                    l.expiry >= today() &&
+                    !l.archivedAt,
                 ).length
               }
             </strong>{" "}
@@ -115,13 +130,14 @@ export function StockPage() {
           className={tab === "inventory" ? "active" : ""}
           onClick={() => setTab("inventory")}
         >
-          Available inventory<span>{data.lots.length}</span>
+          Available inventory
+          <span>{data.lots.filter((l) => !l.archivedAt).length}</span>
         </button>
         <button
           className={tab === "transfers" ? "active" : ""}
           onClick={() => setTab("transfers")}
         >
-          Transfers<span>{data.transfers.length}</span>
+          Transfers<span>{visibleTransfers.length}</span>
         </button>
       </div>
       {tab === "inventory" ? (
@@ -142,16 +158,17 @@ export function StockPage() {
               onChange={(e) => setStore(e.target.value)}
             >
               <option value="all">All stores</option>
-              {data.stores.map((s) => (
+              {liveStores.map((s) => (
                 <option value={s.id} key={s.id}>
                   {s.name}
                 </option>
               ))}
+              <option value="archived">Archived stock</option>
             </select>
           </div>
           <div className="inventory-grid">
             {inventoryPages.items.map((l, index) => {
-              const owner = data.stores.find((s) => s.id === l.storeId)!;
+              const owner = data.stores.find((s) => s.id === l.storeId);
               const available = l.quantity - l.reserved;
               return (
                 <article className="inventory-item" key={l.id}>
@@ -160,9 +177,13 @@ export function StockPage() {
                       <Package size={28} strokeWidth={1.4} />
                     </span>
                     <span
-                      className={`stock-tag ${l.expiry < today() ? "expired" : ""}`}
+                      className={`stock-tag ${l.archivedAt ? "archived" : l.expiry < today() ? "expired" : ""}`}
                     >
-                      {l.expiry < today() ? "Expired" : "Available stock"}
+                      {l.archivedAt
+                        ? "Archived"
+                        : l.expiry < today()
+                          ? "Expired"
+                          : "Available stock"}
                     </span>
                   </div>
                   <div className="inventory-name">
@@ -175,8 +196,8 @@ export function StockPage() {
                   <div className="store-line">
                     <StoreIcon size={14} />
                     <span>
-                      {owner.name}
-                      <small>{owner.locality}</small>
+                      {owner?.name || "Unknown store"}
+                      <small>{owner?.locality || ""}</small>
                     </span>
                   </div>
                   <div className="inventory-numbers">
@@ -191,10 +212,30 @@ export function StockPage() {
                   </div>
                   <div className="inventory-bottom">
                     <span>Expires {date(l.expiry)}</span>
-                    {can("manage_inventory") && (
+                    {can("manage_inventory") && l.archivedAt && (
+                      <RestoreButton entity="lot" id={l.id} />
+                    )}
+                    {can("manage_inventory") && !l.archivedAt && (
+                      <button
+                        className="text-link subtle"
+                        onClick={() => setArchiveLot(l)}
+                      >
+                        Archive
+                      </button>
+                    )}
+                    {can("manage_inventory") && !l.archivedAt && (
                       <button
                         className="text-link"
-                        disabled={available <= 0 || l.expiry < today()}
+                        disabled={
+                          available <= 0 ||
+                          l.expiry < today() ||
+                          liveStores.length < 2
+                        }
+                        title={
+                          liveStores.length < 2
+                            ? "Add a second store before transferring stock"
+                            : undefined
+                        }
                         onClick={() => setLot(l)}
                       >
                         Transfer stock
@@ -212,7 +253,8 @@ export function StockPage() {
       ) : (
         <div className="transfer-list">
           {transferPages.items.map((t) => {
-            const l = data.lots.find((l) => l.id === t.lotId)!;
+            const l = data.lots.find((l) => l.id === t.lotId);
+            if (!l) return null;
             return (
               <article className="transfer-item" key={t.id}>
                 <div className="transfer-top">
@@ -337,6 +379,14 @@ export function StockPage() {
       {newStore && can("manage_workspace") && (
         <StoreForm close={() => setNewStore(false)} />
       )}
+      {archiveLot && can("manage_inventory") && (
+        <ArchiveForm
+          entity="lot"
+          id={archiveLot.id}
+          label={archiveLot.product}
+          close={() => setArchiveLot(null)}
+        />
+      )}
     </>
   );
 }
@@ -406,11 +456,13 @@ function StockForm({ close }: { close: () => void }) {
         <div className="modal-body">
           <Field label="Store">
             <select name="storeId">
-              {data.stores.map((s) => (
-                <option key={s.id} value={s.id}>
-                  {s.name}
-                </option>
-              ))}
+              {data.stores
+                .filter((s) => !s.archivedAt)
+                .map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.name}
+                  </option>
+                ))}
             </select>
           </Field>
           <Field label="Product name">
@@ -521,7 +573,7 @@ function TransferForm({
           <Field label="Receiving store">
             <select name="destination" required>
               {data.stores
-                .filter((s) => s.id !== lot.storeId)
+                .filter((s) => !s.archivedAt && s.id !== lot.storeId)
                 .map((s) => (
                   <option value={s.id} key={s.id}>
                     {s.name} - {s.locality}

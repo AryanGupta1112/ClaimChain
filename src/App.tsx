@@ -34,7 +34,9 @@ import {
   CalendarDays,
   SlidersHorizontal,
   Users,
+  Archive,
 } from "lucide-react";
+import { toast } from "sonner";
 import {
   api,
   useWorkspace,
@@ -122,7 +124,9 @@ export function App() {
           capability: "manage_workspace" as Capability,
         },
       ].find((n) => n.path === location.pathname)?.label || "Workspace";
-  const openCases = data.cases.filter((c) => c.status !== "resolved").length;
+  const openCases = data.cases.filter(
+    (c) => c.status !== "resolved" && !c.archivedAt,
+  ).length;
   const [mobile, setMobile] = useState(
     () => window.matchMedia("(max-width: 760px)").matches,
   );
@@ -231,7 +235,8 @@ export function App() {
                 )}
                 {path === "/tasks" &&
                   data.tasks.some(
-                    (t) => !t.completedAt && t.dueDate < today(),
+                    (t) =>
+                      !t.completedAt && !t.archivedAt && t.dueDate < today(),
                   ) && <span className="nav-dot" />}
               </NavLink>
             ))}
@@ -645,6 +650,11 @@ export function CaseTable({
               </td>
               <td>
                 <Badge status={c.status} />
+                {c.archivedAt && (
+                  <span className="archived-chip" title={c.archiveReason}>
+                    Archived
+                  </span>
+                )}
               </td>
               {!compact && (
                 <td>
@@ -678,14 +688,20 @@ export function CaseTable({
 function Overview({ onCreate }: { onCreate: () => void }) {
   const { data } = useWorkspace();
   const { can } = useAuth();
-  const open = data.cases.filter((c) => c.status !== "resolved");
+  // Archived records stay in the workspace and its exports, but they are not
+  // part of what is currently owed or outstanding.
+  const liveCases = data.cases.filter((c) => !c.archivedAt);
+  const liveCaseIds = new Set(liveCases.map((c) => c.id));
+  const open = liveCases.filter((c) => c.status !== "resolved");
   const unpaid = open.reduce((sum, c) => sum + balance(data, c), 0);
-  const recovered = data.payments.reduce((sum, p) => sum + p.amount, 0);
+  const recovered = data.payments
+    .filter((p) => liveCaseIds.has(p.caseId))
+    .reduce((sum, p) => sum + p.amount, 0);
   const overdue = open.filter(
     (c) => c.kind === "payment" && c.dueDate < today(),
   );
   const tasks = data.tasks
-    .filter((t) => !t.completedAt)
+    .filter((t) => !t.completedAt && !t.archivedAt && liveCaseIds.has(t.caseId))
     .sort((a, b) => a.dueDate.localeCompare(b.dueDate));
   return (
     <>
@@ -719,7 +735,15 @@ function Overview({ onCreate }: { onCreate: () => void }) {
             <ArrowUpRight size={17} />
           </span>
           <strong className="green-text">{money(recovered)}</strong>
-          <small>Across {data.payments.length} recorded payments</small>
+          <small>
+            Across{" "}
+            {
+              data.payments.filter(
+                (p) => liveCaseIds.has(p.caseId) && !p.reversalOf,
+              ).length
+            }{" "}
+            recorded payments
+          </small>
         </div>
         <div className="metric">
           <span>
@@ -728,7 +752,7 @@ function Overview({ onCreate }: { onCreate: () => void }) {
           </span>
           <strong>{String(open.length).padStart(2, "0")}</strong>
           <small>
-            {data.cases.filter((c) => c.status === "resolved").length} resolved
+            {liveCases.filter((c) => c.status === "resolved").length} resolved
             successfully
           </small>
         </div>
@@ -744,7 +768,10 @@ function Overview({ onCreate }: { onCreate: () => void }) {
               ).length,
             ).padStart(2, "0")}
           </strong>
-          <small>{data.stores.length} stores in your network</small>
+          <small>
+            {data.stores.filter((s) => !s.archivedAt).length} stores in your
+            network
+          </small>
         </div>
       </section>
       <div className="overview-layout">
@@ -861,13 +888,17 @@ function Overview({ onCreate }: { onCreate: () => void }) {
                 </span>
                 <span className="badge received">
                   <span />
-                  {data.stores.length} stores
+                  {data.stores.filter((s) => !s.archivedAt).length} stores
                 </span>
               </div>
               <h3>Put surplus to work.</h3>
               <p>
-                {data.lots.filter((l) => l.quantity > l.reserved).length} stock
-                lots are available across your store network.
+                {
+                  data.lots.filter(
+                    (l) => l.quantity > l.reserved && !l.archivedAt,
+                  ).length
+                }{" "}
+                stock lots are available across your store network.
               </p>
               <Link to="/stock">
                 Open stock exchange
@@ -896,13 +927,19 @@ function CasesPage({ onCreate }: { onCreate: () => void }) {
     [status, setStatus] = useState("all"),
     [kind, setKind] = useState("all"),
     [sort, setSort] = useState("due");
+  // "Archived" is a view of its own: archived cases are excluded from every
+  // other tab so totals and workloads only reflect live obligations.
+  const matchesStatus = (c: RecoveryCase) =>
+    status === "archived"
+      ? Boolean(c.archivedAt)
+      : !c.archivedAt && (status === "all" || c.status === status);
   const cases = data.cases
     .filter(
       (c) =>
         `${c.title} ${c.counterparty} ${c.number} ${c.invoice}`
           .toLowerCase()
           .includes(query.toLowerCase()) &&
-        (status === "all" || c.status === status) &&
+        matchesStatus(c) &&
         (kind === "all" || c.kind === kind),
     )
     .sort((a, b) =>
@@ -932,6 +969,7 @@ function CasesPage({ onCreate }: { onCreate: () => void }) {
           ["open", "Open"],
           ["in_progress", "In progress"],
           ["resolved", "Resolved"],
+          ["archived", "Archived"],
         ].map(([value, label]) => (
           <button
             key={value}
@@ -941,8 +979,11 @@ function CasesPage({ onCreate }: { onCreate: () => void }) {
             {label}
             <span>
               {
-                data.cases.filter((c) => value === "all" || c.status === value)
-                  .length
+                data.cases.filter((c) =>
+                  value === "archived"
+                    ? c.archivedAt
+                    : !c.archivedAt && (value === "all" || c.status === value),
+                ).length
               }
             </span>
           </button>
@@ -1069,11 +1110,16 @@ function TasksPage() {
   const [filter, setFilter] = useState("open"),
     [create, setCreate] = useState(false),
     [busy, setBusy] = useState<string | null>(null);
+  const archivedCases = new Set(
+    data.cases.filter((c) => c.archivedAt).map((c) => c.id),
+  );
   const tasks = data.tasks
     .filter(
       (t) =>
-        filter === "all" ||
-        (filter === "done" ? !!t.completedAt : !t.completedAt),
+        !t.archivedAt &&
+        !archivedCases.has(t.caseId) &&
+        (filter === "all" ||
+          (filter === "done" ? !!t.completedAt : !t.completedAt)),
     )
     .sort((a, b) => a.dueDate.localeCompare(b.dueDate));
   const pagination = usePagination(tasks, 8);
@@ -1219,6 +1265,63 @@ function ActivityPage() {
   );
 }
 
+/**
+ * Clears the seeded demonstration workspace. Seeded records are archived, not
+ * destroyed, so an owner who clears by mistake can restore them.
+ */
+function ClearSampleButton() {
+  const { run } = useWorkspace();
+  const [busy, setBusy] = useState(false);
+  const [confirming, setConfirming] = useState(false);
+  if (!confirming)
+    return (
+      <button className="btn" onClick={() => setConfirming(true)}>
+        <Archive size={16} />
+        Clear sample data
+      </button>
+    );
+  return (
+    <div className="discard-prompt" role="alert">
+      <strong>Archive every seeded record?</strong>
+      <p className="muted">
+        They leave your working lists and totals but stay in the activity log
+        and the workspace export, and you can restore any of them later.
+      </p>
+      <div>
+        <button
+          className="btn"
+          type="button"
+          onClick={() => setConfirming(false)}
+        >
+          Keep them
+        </button>
+        <button
+          className="btn primary"
+          type="button"
+          disabled={busy}
+          onClick={async () => {
+            setBusy(true);
+            const result = await run<{ archived: number; held: string[] }>(() =>
+              api("/workspace/clear-sample", "POST"),
+            );
+            setBusy(false);
+            setConfirming(false);
+            if (result)
+              toast.success(
+                result.held.length
+                  ? `${result.archived} archived. ${result.held.length} held by live activity.`
+                  : `${result.archived} demonstration records archived.`,
+              );
+          }}
+        >
+          <Archive size={16} />
+          Archive sample data
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function SettingsPage() {
   const { data, run } = useWorkspace();
   const { signOut } = useAuth();
@@ -1324,6 +1427,23 @@ function SettingsPage() {
               <Download size={16} />
               Export workspace
             </a>
+          </section>
+          <section className="settings-section">
+            <h2>Demonstration records</h2>
+            {data.cases.some((c) => c.sample && !c.archivedAt) ? (
+              <>
+                <p className="muted">
+                  This workspace still contains seeded fictional records. Clear
+                  them before you rely on your own figures - they are counted in
+                  every dashboard total until you do.
+                </p>
+                <ClearSampleButton />
+              </>
+            ) : (
+              <p className="muted">
+                No seeded demonstration records are active in this workspace.
+              </p>
+            )}
           </section>
           <section className="settings-section">
             <h2>Access</h2>

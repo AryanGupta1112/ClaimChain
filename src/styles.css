@@ -3295,3 +3295,146 @@ th,
     grid-column: 2;
   }
 }
+
+/* ---------------------------------------------------------------
+   Corrections: amendments, reversals and archived records. Colours
+   come from the theme tokens so these read correctly on both the
+   light marketing surface and the dark workspace canvas.
+   --------------------------------------------------------------- */
+.archived-banner {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 18px;
+  margin-bottom: 20px;
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--muted);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--muted) 10%, transparent);
+}
+.archived-banner > div {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-right: auto;
+}
+.archived-banner small {
+  color: var(--muted);
+  font-size: 12px;
+}
+.archived-chip {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 2px 8px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: 11px;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+.stock-tag.archived {
+  background: color-mix(in srgb, var(--muted) 16%, transparent);
+  color: var(--muted);
+}
+.permission-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--muted) 12%, transparent);
+  color: var(--ink);
+  font-size: 13px;
+  line-height: 1.5;
+}
+.text-link.subtle {
+  color: var(--muted);
+}
+.row-action {
+  width: 1%;
+  white-space: nowrap;
+}
+.ledger-note {
+  display: block;
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 11px;
+}
+.ledger-reversed td:not(.row-action) {
+  opacity: 0.55;
+  text-decoration: line-through;
+}
+.ledger-reversal td {
+  background: color-mix(in srgb, var(--muted) 8%, transparent);
+}
+.amendment-list {
+  display: flex;
+  flex-direction: column;
+}
+.amendment-row {
+  display: flex;
+  gap: 14px;
+  padding: 16px 0;
+  border-bottom: 1px solid var(--line);
+}
+.amendment-row:last-child {
+  border-bottom: 0;
+}
+.amendment-row > div {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.amendment-row strong {
+  font-size: 14px;
+  color: var(--ink);
+}
+.amendment-row p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.5;
+}
+.amendment-row small {
+  color: var(--muted);
+  font-size: 11.5px;
+}
+.amendment-change {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: 12.5px;
+}
+.amendment-change s {
+  color: var(--muted);
+}
+.amendment-change b {
+  color: var(--green);
+}
+.amendment-kind {
+  flex-shrink: 0;
+  align-self: flex-start;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 11px;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  border: 1px solid var(--line);
+  color: var(--muted);
+}
+.amendment-kind.agreed_change {
+  border-color: color-mix(in srgb, var(--green) 45%, transparent);
+  color: var(--green);
+}
+@media (max-width: 560px) {
+  .archived-banner {
+    flex-wrap: wrap;
+  }
+  .amendment-row {
+    flex-direction: column;
+    gap: 8px;
+  }
+}
