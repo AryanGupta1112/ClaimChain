@@ -19,6 +19,7 @@ import {
   verifyAmendments,
 } from "./store.js";
 import { AuthProblem, AuthService } from "./auth.js";
+import { resolveDjangoSession } from "./django-auth.js";
 import { MailDeliveryError, sendAuthCode } from "./mailer.js";
 import { SimulationService } from "./simulator.js";
 import {
@@ -63,8 +64,8 @@ class HttpError extends Error {
     super(message);
   }
 }
-const fail = (status: number, message: string): never => {
-  throw new HttpError(status, message);
+const fail = (status: number, message: string, code?: string): never => {
+  throw new HttpError(status, message, code);
 };
 const text = z.string().trim().min(1).max(200);
 const optional = z.string().trim().max(200).default("");
@@ -232,6 +233,11 @@ export function createApp(
     db.db,
     options.seed ?? process.env.SEED_SAMPLE !== "false",
   );
+  // Unit tests deliberately retain the legacy in-process provider. Every real
+  // runtime uses Django as the identity authority and only consumes its signed
+  // session cookie here.
+  const authProvider =
+    process.env.AUTH_PROVIDER || (options.directory ? "legacy" : "django");
   const simulation = new SimulationService(db);
   const app = express();
   const cookieName = (
@@ -245,6 +251,10 @@ export function createApp(
       ?.split("; ")
       .find((part) => part.startsWith(`${cookieName}=`))
       ?.slice(cookieName.length + 1) || "";
+  const resolveSession = async (token: string) =>
+    authProvider === "django"
+      ? resolveDjangoSession(token)
+      : auth.resolveSession(token);
   const requestMeta = (req: Request) => ({
     ip: req.ip || "local",
     userAgent: req.get("user-agent") || "",
@@ -287,7 +297,56 @@ export function createApp(
       );
   };
   app.disable("x-powered-by");
+  // The isolated Node browser fixture retains the old provider to avoid
+  // requiring a second process. Real runtime traffic uses Django at `/auth`.
+  if (authProvider === "legacy")
+    app.use("/auth", (req, _res, next) => {
+      req.url = req.url.startsWith("/admin/")
+        ? `/api${req.url}`
+        : `/api/auth${req.url}`;
+      // Re-enter the application after rewriting. Express restores a mounted
+      // middleware's original URL when `next()` unwinds, so a plain next()
+      // would otherwise fall through to a 404.
+      (
+        app as unknown as {
+          handle: (
+            request: Request,
+            response: Response,
+            callback: NextFunction,
+          ) => void;
+        }
+      ).handle(req, _res, next);
+    });
   app.use(express.json({ limit: "1mb" }));
+  if (authProvider === "django")
+    app.use("/auth", async (req, res, next) => {
+      try {
+        const response = await fetch(
+          `${process.env.DJANGO_AUTH_URL || "http://127.0.0.1:8000"}${req.originalUrl}`,
+          {
+            method: req.method,
+            headers: {
+              ...(req.headers.cookie ? { cookie: req.headers.cookie } : {}),
+              ...(req.is("application/json")
+                ? { "content-type": "application/json" }
+                : {}),
+            },
+            body:
+              req.method === "GET" || req.method === "HEAD"
+                ? undefined
+                : JSON.stringify(req.body),
+          },
+        );
+        res.status(response.status);
+        const contentType = response.headers.get("content-type");
+        if (contentType) res.setHeader("Content-Type", contentType);
+        for (const cookie of response.headers.getSetCookie())
+          res.append("Set-Cookie", cookie);
+        res.send(await response.text());
+      } catch (error) {
+        next(error);
+      }
+    });
   app.use((req, res, next) => {
     res.setHeader("X-Content-Type-Options", "nosniff");
     res.setHeader("Referrer-Policy", "same-origin");
@@ -376,14 +435,14 @@ export function createApp(
     );
     res.json({ user: auth.getUser(user.id) });
   });
-  app.get("/api/auth/me", (req, res) => {
-    const session = auth.resolveSession(tokenFrom(req));
+  app.get("/api/auth/me", async (req, res) => {
+    const session = await resolveSession(tokenFrom(req));
     if (!session)
       throw new AuthProblem(401, "UNAUTHENTICATED", "Sign in to continue");
     res.json({ user: session.user });
   });
-  app.post("/api/auth/logout", (req, res) => {
-    const session = auth.resolveSession(tokenFrom(req));
+  app.post("/api/auth/logout", async (req, res) => {
+    const session = await resolveSession(tokenFrom(req));
     if (session) {
       auth.revokeSession(session.sessionId);
       auth.audit({
@@ -508,8 +567,8 @@ export function createApp(
     res.setHeader("Set-Cookie", cookie("", 0));
     res.json({ ok: true });
   });
-  app.use("/api", (req, _res, next) => {
-    const session = auth.resolveSession(tokenFrom(req));
+  app.use("/api", async (req, _res, next) => {
+    const session = await resolveSession(tokenFrom(req));
     if (!session)
       return next(
         new AuthProblem(401, "UNAUTHENTICATED", "Sign in to continue"),
@@ -674,9 +733,30 @@ export function createApp(
     (_req, res) => res.json(simulation.status()),
   );
   app.post(
+    "/api/simulation/control",
+    requireCapability("manage_simulation"),
+    (req, res) => {
+      const { halted } = z.object({ halted: z.boolean() }).parse(req.body);
+      const status = simulation.setHalted(halted);
+      auth.audit({
+        actor: req.auth!.user,
+        action: halted
+          ? "Simulation ingestion halted"
+          : "Simulation ingestion continued",
+        detail: halted
+          ? "Automatic and manual synthetic ingestion paused"
+          : "Synthetic ingestion permitted",
+        ...requestMeta(req),
+      });
+      res.json(status);
+    },
+  );
+  app.post(
     "/api/simulation/ingest",
     requireCapability("manage_simulation"),
     (req, res) => {
+      if (simulation.status().halted)
+        fail(409, "Simulation ingestion is halted", "SIMULATION_HALTED");
       const result = simulation.ingest();
       auth.audit({
         actor: req.auth!.user,
@@ -723,6 +803,22 @@ export function createApp(
     const input = caseInput.parse(req.body);
     res.status(201).json(
       db.mutate((s) => {
+        if (input.kind === "payment" && input.invoice) {
+          const invoice = input.invoice.toLocaleLowerCase("en-US");
+          const counterparty = input.counterparty.toLocaleLowerCase("en-US");
+          const duplicate = s.cases.find(
+            (item) =>
+              item.kind === "payment" &&
+              item.invoice.toLocaleLowerCase("en-US") === invoice &&
+              item.counterparty.toLocaleLowerCase("en-US") === counterparty,
+          );
+          if (duplicate)
+            fail(
+              409,
+              `Invoice ${input.invoice} already has case ${duplicate.number} for ${input.counterparty}`,
+              "DUPLICATE_INVOICE",
+            );
+        }
         const c: RecoveryCase = {
           ...input,
           id: uid(),

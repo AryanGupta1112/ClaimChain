@@ -82,8 +82,9 @@ export function RequireAuth({ children }: { children: ReactNode }) {
         <div className="wordmark">
           ClaimChain<span>.</span>
         </div>
-        <div className="skeleton" />
-        <div className="skeleton short" />
+        <div className="workspace-loader" aria-hidden="true">
+          <span />
+        </div>
         <span className="muted">Securing your workspace...</span>
       </div>
     );

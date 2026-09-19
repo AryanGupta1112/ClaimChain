@@ -9,4 +9,6 @@ playwright-report/
 .kilo/
 coverage/
 *.tmp
+__pycache__/
+*.py[cod]
 .DS_Store

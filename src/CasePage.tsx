@@ -25,6 +25,7 @@ import {
   Undo2,
   History,
   RotateCcw,
+  Play,
 } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -109,6 +110,16 @@ export function CasePage() {
     ? payments.reduce((sum, p) => sum + p.amount, 0)
     : c.amount - balance(data, c);
   const unpaid = c.amount - received;
+  async function startCase() {
+    setBusy("start");
+    const result = await run(
+      () =>
+        api<RecoveryCase>(`/cases/${id}`, "PATCH", { status: "in_progress" }),
+      "Case moved to in progress",
+    );
+    if (result) await reload();
+    setBusy("");
+  }
   async function generate(ai = false) {
     setBusy(ai ? "ai" : "draft");
     const result = await run(
@@ -129,6 +140,9 @@ export function CasePage() {
     setPendingChecks((current) => ({ ...current, [itemId]: checked }));
     setBusy(itemId);
     await run(() => api(`/checklist/${itemId}`, "PATCH", { done: checked }));
+    // The case view uses its own detail query. Keep the optimistic state until
+    // that query has observed the persisted requirement change.
+    await reload();
     setPendingChecks((current) => {
       const next = { ...current };
       delete next[itemId];
@@ -144,6 +158,16 @@ export function CasePage() {
       </Link>
       <PageHead title={c.title} description={`${c.number} · ${c.counterparty}`}>
         <Badge status={c.status} />
+        {can("manage_cases") && !locked && c.status === "open" && (
+          <button
+            className="btn primary"
+            onClick={() => void startCase()}
+            disabled={busy === "start"}
+          >
+            <Play size={16} />
+            Start case
+          </button>
+        )}
         {can("manage_cases") && !locked && (
           <button className="btn" onClick={() => setAmend(true)}>
             <PencilLine size={16} />
@@ -1076,7 +1100,7 @@ function DraftEditor({ draft, close }: { draft: Draft; close: () => void }) {
                 Download PDF
               </a>
               {can("prepare_documents") && (
-                <Submit busy={busy || !dirty}>
+                <Submit busy={busy} disabled={!dirty}>
                   <Check size={16} />
                   Save draft
                 </Submit>

@@ -1,5 +1,9 @@
 .auth-page {
+  width: 100%;
+  max-width: none;
   min-height: 100svh;
+  margin: 0;
+  padding: 0;
   display: grid;
   grid-template-columns: minmax(0, 1.08fr) minmax(440px, 0.92fr);
   background: #eef1ed;

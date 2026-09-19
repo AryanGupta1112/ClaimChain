@@ -24,6 +24,7 @@ import type {
   SecurityAuditEntry,
   UserScopes,
 } from "../shared/auth";
+import type { SimulationStatus } from "../shared/types";
 import {
   api,
   Empty,
@@ -35,13 +36,6 @@ import {
 } from "./lib";
 
 type Editor = { user?: AuthUser } | null;
-type SimulationStatus = {
-  enabled: boolean;
-  running: boolean;
-  intervalMs: number;
-  nextEvent: string;
-};
-
 function ServerPager({
   page,
   totalPages,
@@ -84,7 +78,13 @@ function ServerPager({
   );
 }
 
-export function AccessPage() {
+export function AccessPage({
+  simulation,
+  onSimulationChange,
+}: {
+  simulation: SimulationStatus | null;
+  onSimulationChange: (status: SimulationStatus) => void;
+}) {
   const { data, refresh: refreshWorkspace } = useWorkspace();
   const [tab, setTab] = useState<"users" | "audit" | "simulation">("users");
   const [roles, setRoles] = useState<RoleDefinition[]>([]);
@@ -92,7 +92,6 @@ export function AccessPage() {
   const [audit, setAudit] = useState<PageResult<SecurityAuditEntry> | null>(
     null,
   );
-  const [simulation, setSimulation] = useState<SimulationStatus | null>(null);
   const [page, setPage] = useState(1);
   const [query, setQuery] = useState("");
   const [editor, setEditor] = useState<Editor>(null);
@@ -114,8 +113,9 @@ export function AccessPage() {
           `/admin/security-audit?page=${page}&pageSize=10`,
         ),
       );
-    } else setSimulation(await api<SimulationStatus>("/simulation/status"));
-  }, [page, query, tab]);
+    } else
+      onSimulationChange(await api<SimulationStatus>("/simulation/status"));
+  }, [onSimulationChange, page, query, tab]);
 
   useEffect(() => {
     void load().catch((error) => toast.error((error as Error).message));
@@ -337,9 +337,11 @@ export function AccessPage() {
               className={`live-dot ${simulation?.running ? "" : "paused"}`}
             />
             <p>
-              {simulation?.running
-                ? "Automatic ingestion is running"
-                : "Automatic ingestion is paused"}
+              {simulation?.halted
+                ? "Ingestion is halted"
+                : simulation?.running
+                  ? "Automatic ingestion is running"
+                  : "Automatic ingestion is paused"}
             </p>
             <h2>{simulation?.nextEvent || "Loading ingestion state..."}</h2>
             <span>
@@ -365,14 +367,15 @@ export function AccessPage() {
           </dl>
           <button
             className="btn primary"
-            disabled={busy}
+            disabled={busy || simulation?.halted}
             onClick={async () => {
               setBusy(true);
               try {
-                const result = await api<{ message: string }>(
-                  "/simulation/ingest",
-                  "POST",
-                );
+                const result = await api<{
+                  message: string;
+                  status: SimulationStatus;
+                }>("/simulation/ingest", "POST");
+                onSimulationChange(result.status);
                 toast.success(result.message);
                 await Promise.all([load(), refreshWorkspace()]);
               } catch (error) {
@@ -387,7 +390,7 @@ export function AccessPage() {
             ) : (
               <Play size={16} />
             )}
-            Ingest next event
+            {simulation?.halted ? "Ingestion halted" : "Ingest next event"}
           </button>
         </section>
       )}

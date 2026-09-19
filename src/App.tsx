@@ -2,7 +2,6 @@ import { useState, useEffect, useRef, type FormEvent } from "react";
 import {
   NavLink,
   Link,
-  Routes,
   Route,
   useLocation,
   useNavigate,
@@ -24,7 +23,6 @@ import {
   Download,
   Check,
   Clock3,
-  CircleHelp,
   ShieldCheck,
   LogOut,
   Link2,
@@ -35,6 +33,7 @@ import {
   SlidersHorizontal,
   Users,
   Archive,
+  ChevronUp,
 } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -57,11 +56,12 @@ import {
 } from "./lib";
 import { useAuth, RequireCapability } from "./auth";
 import { ROLE_DEFINITIONS, type Capability } from "../shared/auth";
-import type { RecoveryCase, CaseKind } from "../shared/types";
+import type { RecoveryCase, CaseKind, SimulationStatus } from "../shared/types";
 import { CasePage } from "./CasePage";
 import { StockPage } from "./StockPage";
 import { WORKSPACE_TIMEZONE } from "../shared/calendar";
 import { AccessPage } from "./AccessPage";
+import { RouteTransition } from "./RouteTransition";
 
 const navigation: {
   path: string;
@@ -112,7 +112,9 @@ export function App() {
   const { user, can, signOut } = useAuth();
   const [menu, setMenu] = useState(false),
     [create, setCreate] = useState(false),
-    [help, setHelp] = useState(false);
+    [accountMenu, setAccountMenu] = useState(false);
+  const [simulation, setSimulation] = useState<SimulationStatus | null>(null);
+  const [simulationBusy, setSimulationBusy] = useState(false);
   const location = useLocation();
   const title = location.pathname.startsWith("/cases/")
     ? "Case workspace"
@@ -133,6 +135,8 @@ export function App() {
   );
   const sidebar = useRef<HTMLElement>(null);
   const menuButton = useRef<HTMLButtonElement>(null);
+  const accountControl = useRef<HTMLDivElement>(null);
+  const accountButton = useRef<HTMLButtonElement>(null);
   useEffect(() => {
     const media = window.matchMedia("(max-width: 760px)");
     const update = () => {
@@ -177,6 +181,67 @@ export function App() {
       menuButton.current?.focus();
     };
   }, [menu, mobile]);
+  useEffect(() => {
+    if (!accountMenu) return;
+    const closeOutside = (event: PointerEvent) => {
+      if (!accountControl.current?.contains(event.target as Node)) {
+        setAccountMenu(false);
+      }
+    };
+    const keydown = (event: KeyboardEvent) => {
+      const items = [
+        ...(accountControl.current?.querySelectorAll<HTMLElement>(
+          '[role="menuitem"]',
+        ) || []),
+      ];
+      if (event.key === "Escape") {
+        event.preventDefault();
+        setAccountMenu(false);
+        accountButton.current?.focus();
+      } else if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+        event.preventDefault();
+        const current = items.indexOf(document.activeElement as HTMLElement);
+        const offset = event.key === "ArrowDown" ? 1 : -1;
+        items[(current + offset + items.length) % items.length]?.focus();
+      }
+    };
+    document.addEventListener("pointerdown", closeOutside);
+    document.addEventListener("keydown", keydown);
+    requestAnimationFrame(() =>
+      accountControl.current
+        ?.querySelector<HTMLElement>('[role="menuitem"]')
+        ?.focus(),
+    );
+    return () => {
+      document.removeEventListener("pointerdown", closeOutside);
+      document.removeEventListener("keydown", keydown);
+    };
+  }, [accountMenu]);
+  useEffect(() => {
+    if (!can("manage_simulation")) return;
+    void api<SimulationStatus>("/simulation/status")
+      .then(setSimulation)
+      .catch((error) => toast.error((error as Error).message));
+  }, [can]);
+  const setIngestionHalted = async (halted: boolean) => {
+    if (!simulation || simulation.halted === halted) return;
+    setSimulationBusy(true);
+    try {
+      const status = await api<SimulationStatus>(
+        "/simulation/control",
+        "POST",
+        { halted },
+      );
+      setSimulation(status);
+      toast.success(
+        halted ? "Live ingestion halted" : "Live ingestion continued",
+      );
+    } catch (error) {
+      toast.error((error as Error).message);
+    } finally {
+      setSimulationBusy(false);
+    }
+  };
   return (
     <div className="app-shell">
       <a className="skip-link" href="#main">
@@ -204,11 +269,7 @@ export function App() {
             ClaimChain<span className="brand-dot">.</span>
           </span>
         </Link>
-        <Link
-          to={can("manage_workspace") ? "/settings" : "/workspace"}
-          className="workspace-switch"
-          onClick={() => setMenu(false)}
-        >
+        <div className="workspace-switch">
           <span className="workspace-avatar">
             <Store size={18} />
           </span>
@@ -216,8 +277,7 @@ export function App() {
             <strong>{data.workspace.name}</strong>
             <small>Business workspace</small>
           </span>
-          <ChevronDown size={14} />
-        </Link>
+        </div>
         <div className="nav-label">WORKSPACE</div>
         <nav aria-label="Main navigation">
           {navigation
@@ -242,35 +302,6 @@ export function App() {
               </NavLink>
             ))}
         </nav>
-        <div className="sidebar-bottom">
-          <div className="workspace-state">
-            <span className="live-dot" />
-            <span>
-              {data.workspace.sample ? "Sample workspace" : "Local workspace"}
-            </span>
-            <ShieldCheck size={15} />
-          </div>
-          {can("manage_workspace") && (
-            <NavLink
-              className="utility-link"
-              to="/settings"
-              onClick={() => setMenu(false)}
-            >
-              <Settings size={18} />
-              Settings
-            </NavLink>
-          )}
-          <button
-            className="utility-link"
-            onClick={() => {
-              setMenu(false);
-              setHelp(true);
-            }}
-          >
-            <CircleHelp size={18} />
-            About this workspace
-          </button>
-        </div>
       </aside>
       <div className="main-shell" inert={mobile && menu}>
         <header className="topbar">
@@ -288,35 +319,86 @@ export function App() {
             </button>
             <span>Workspace</span>
             <span className="slash">/</span>
-            <strong>{title}</strong>
+            <strong className="breadcrumb-current" key={title}>
+              {title}
+            </strong>
           </div>
           <div className="topbar-right">
-            <span className="local-status">
-              <span className="live-dot" />
-              Saved locally
-            </span>
-            <span className="topbar-divider" />
-            <div className="topbar-profile">
-              <span className="avatar small">
-                {initials(user!.displayName)}
-              </span>
-              <span className="topbar-identity">
-                <strong>{user!.displayName}</strong>
-                <small>{ROLE_DEFINITIONS[user!.role].label}</small>
-              </span>
-              <button
-                className="icon-btn"
-                title="Sign out"
-                aria-label="Sign out"
-                onClick={() => void signOut()}
+            {can("manage_simulation") && (
+              <div
+                className="ingestion-toggle"
+                role="group"
+                aria-label="Live ingestion control"
+                aria-busy={simulationBusy}
               >
-                <LogOut size={16} />
+                <button
+                  aria-pressed={simulation?.halted === false}
+                  disabled={!simulation || simulationBusy}
+                  onClick={() => void setIngestionHalted(false)}
+                >
+                  Continue
+                </button>
+                <button
+                  aria-pressed={simulation?.halted === true}
+                  disabled={!simulation || simulationBusy}
+                  onClick={() => void setIngestionHalted(true)}
+                >
+                  Halt
+                </button>
+              </div>
+            )}
+            <div className="account-control" ref={accountControl}>
+              <button
+                ref={accountButton}
+                className="topbar-profile account-trigger"
+                aria-haspopup="menu"
+                aria-expanded={accountMenu}
+                aria-controls="account-menu"
+                aria-label={`Open account menu for ${user!.displayName}`}
+                onClick={() => setAccountMenu((open) => !open)}
+              >
+                <span className="avatar small">
+                  {initials(user!.displayName)}
+                </span>
+                <span className="topbar-identity">
+                  <strong>{user!.displayName}</strong>
+                  <small>{ROLE_DEFINITIONS[user!.role].label}</small>
+                </span>
+                {accountMenu ? (
+                  <ChevronUp size={14} />
+                ) : (
+                  <ChevronDown size={14} />
+                )}
               </button>
+              {accountMenu && (
+                <div className="account-menu" id="account-menu" role="menu">
+                  {can("manage_workspace") && (
+                    <Link
+                      to="/settings"
+                      role="menuitem"
+                      onClick={() => setAccountMenu(false)}
+                    >
+                      <Settings size={17} />
+                      Settings
+                    </Link>
+                  )}
+                  <button
+                    role="menuitem"
+                    onClick={() => {
+                      setAccountMenu(false);
+                      void signOut();
+                    }}
+                  >
+                    <LogOut size={17} />
+                    Sign out
+                  </button>
+                </div>
+              )}
             </div>
           </div>
         </header>
         <main id="main">
-          <Routes>
+          <RouteTransition className="route-transition-workspace">
             <Route
               path="/workspace"
               element={
@@ -369,7 +451,10 @@ export function App() {
               path="/access"
               element={
                 <RequireCapability capability="manage_users">
-                  <AccessPage />
+                  <AccessPage
+                    simulation={simulation}
+                    onSimulationChange={setSimulation}
+                  />
                 </RequireCapability>
               }
             />
@@ -408,50 +493,11 @@ export function App() {
                 />
               }
             />
-          </Routes>
-          <footer className="page-footer">
-            <span>ClaimChain</span>
-            <span>Every step, accounted for.</span>
-          </footer>
+          </RouteTransition>
         </main>
       </div>
       {create && can("create_cases") && (
         <NewCase close={() => setCreate(false)} />
-      )}
-      {help && (
-        <Modal title="About your workspace" close={() => setHelp(false)}>
-          <div className="modal-body prose">
-            <p>
-              ClaimChain keeps recovery cases, supporting evidence, payment
-              receipts and store transfers together.
-            </p>
-            <dl>
-              <dt>Workspace data</dt>
-              <dd>
-                {data.workspace.sample
-                  ? "The starting stores and transactions are fictional sample records."
-                  : "This workspace is stored locally."}{" "}
-                Changes are saved to the server database.
-              </dd>
-              <dt>Payments and correspondence</dt>
-              <dd>
-                Receipts are recorded by the owner. Prepared letters are drafts;
-                downloading a letter does not send it.
-              </dd>
-              <dt>AWS connections</dt>
-              <dd>
-                Optional S3, Textract and Bedrock connections are listed in
-                Settings. Configuration is not proof of a successful cloud
-                operation.
-              </dd>
-            </dl>
-          </div>
-          <div className="modal-actions">
-            <button className="btn primary" onClick={() => setHelp(false)}>
-              Done
-            </button>
-          </div>
-        </Modal>
       )}
     </div>
   );
@@ -488,7 +534,7 @@ export function NewCase({ close }: { close: () => void }) {
   }
   return (
     <Modal title="Open a recovery case" close={close}>
-      <form onSubmit={submit}>
+      <form onSubmit={submit} autoComplete="off">
         <div className="modal-body">
           <Field label="Case type">
             <select
