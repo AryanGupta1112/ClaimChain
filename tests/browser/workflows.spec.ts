@@ -9,8 +9,98 @@ async function login(page: Page, identifier = "admin") {
     .getByLabel("Password", { exact: true })
     .fill("ClaimChainDemo!2026");
   await page.getByRole("button", { name: "Enter workspace" }).click();
+  await expect(page.getByText("Opening your workspace...")).toBeVisible();
+  await expect(page.locator(".workspace-loader")).toHaveCount(1);
+  await expect(page.locator(".workspace-loader > span")).toHaveCount(1);
   await expect(page).toHaveURL(/\/workspace$/);
 }
+
+test("login handoff is legible and route motion reverses with history", async ({
+  page,
+}) => {
+  await page.goto("/login");
+  await page.getByLabel("Email or username").fill("admin");
+  await page
+    .getByLabel("Password", { exact: true })
+    .fill("ClaimChainDemo!2026");
+
+  const started = Date.now();
+  await page.getByRole("button", { name: "Enter workspace" }).click();
+  await expect(page.getByText("Opening your workspace...")).toBeVisible();
+  mkdirSync(".impeccable/review", { recursive: true });
+  await page.screenshot({
+    path: ".impeccable/review/loading.png",
+    fullPage: false,
+  });
+  await page.waitForTimeout(600);
+  await expect(page.getByText("Opening your workspace...")).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "Your recovery workspace" }),
+  ).toBeVisible();
+  expect(Date.now() - started).toBeGreaterThanOrEqual(1100);
+
+  await page.getByRole("link", { name: /Recovery cases/ }).click();
+  await expect(page.locator(".route-transition-workspace")).toHaveAttribute(
+    "data-direction",
+    "forward",
+  );
+  await expect(
+    page.getByRole("heading", { name: "Recovery cases" }),
+  ).toBeVisible();
+  await expect(page.locator(".route-transition-workspace")).toHaveAttribute(
+    "data-phase",
+    "idle",
+  );
+
+  await page.goBack();
+  await expect(page.locator(".route-transition-workspace")).toHaveAttribute(
+    "data-direction",
+    "backward",
+  );
+  await expect(
+    page.getByRole("heading", { name: "Your recovery workspace" }),
+  ).toBeVisible();
+  await expect(page.locator(".route-transition-workspace")).toHaveAttribute(
+    "data-phase",
+    "idle",
+  );
+});
+
+test("top-bar ingestion control persists and governs manual ingestion", async ({
+  page,
+}) => {
+  await login(page);
+  await expect(
+    page.getByRole("button", { name: "Continue", pressed: true }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "Halt" }).click();
+  await expect(
+    page.getByRole("button", { name: "Halt", pressed: true }),
+  ).toBeVisible();
+
+  await page.reload();
+  await expect(
+    page.getByRole("heading", { name: "Your recovery workspace" }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Halt", pressed: true }),
+  ).toBeVisible();
+
+  await page.getByRole("link", { name: "Access control" }).click();
+  await page.getByRole("button", { name: "Data ingestion" }).click();
+  await expect(page.getByText("Ingestion is halted")).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Ingestion halted" }),
+  ).toBeDisabled();
+
+  await page.getByRole("button", { name: "Continue" }).click();
+  await expect(
+    page.getByRole("button", { name: "Continue", pressed: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Ingest next event" }),
+  ).toBeEnabled();
+});
 
 test("landing page fills the viewport without clipping", async ({ page }) => {
   mkdirSync(".impeccable/review", { recursive: true });
@@ -59,11 +149,38 @@ test("landing page fills the viewport without clipping", async ({ page }) => {
 test("authentication screen is responsive and supports password recovery", async ({
   page,
 }) => {
+  const expectAuthPageToCoverViewport = async () => {
+    const bounds = await page.locator(".auth-page").evaluate((element) => {
+      const rect = element.getBoundingClientRect();
+      const visualRect = element
+        .querySelector(".auth-visual")!
+        .getBoundingClientRect();
+      return {
+        top: rect.top,
+        left: rect.left,
+        right: rect.right,
+        height: rect.height,
+        visualTop: visualRect.top,
+        visualLeft: visualRect.left,
+        viewportWidth: window.innerWidth,
+        viewportHeight: window.innerHeight,
+      };
+    });
+
+    expect(bounds.top).toBe(0);
+    expect(bounds.left).toBe(0);
+    expect(bounds.right).toBe(bounds.viewportWidth);
+    expect(bounds.height).toBeGreaterThanOrEqual(bounds.viewportHeight);
+    expect(bounds.visualTop).toBe(0);
+    expect(bounds.visualLeft).toBe(0);
+  };
+
   await page.goto("/login");
   await expect(
     page.getByRole("heading", { name: "Welcome back" }),
   ).toBeVisible();
   await expect(page.locator(".auth-visual video")).toBeVisible();
+  await expectAuthPageToCoverViewport();
   await page.getByRole("link", { name: "Forgot password?" }).click();
   await page.getByLabel("Email or username").fill("admin");
   await page.getByRole("button", { name: "Send reset code" }).click();
@@ -72,6 +189,7 @@ test("authentication screen is responsive and supports password recovery", async
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto("/login");
   await expect(page.locator(".auth-mobile-brand")).toBeVisible();
+  await expectAuthPageToCoverViewport();
   expect(
     await page.evaluate(
       () => document.documentElement.scrollWidth === window.innerWidth,
@@ -96,7 +214,7 @@ test("mobile navigation keeps hidden links out of focus and restores its trigger
   await expect(page.locator(".sidebar .brand")).toBeFocused();
   await page.keyboard.press("Shift+Tab");
   await expect(
-    page.getByRole("button", { name: "About this workspace" }),
+    page.getByRole("link", { name: "Access control" }),
   ).toBeFocused();
   await page.keyboard.press("Tab");
   await expect(page.locator(".sidebar .brand")).toBeFocused();
@@ -368,7 +486,7 @@ test("desktop and mobile layouts, navigation, accessibility and screenshots", as
   ).toEqual([]);
 });
 
-test("short desktop sidebars keep utilities reachable and identity in the top bar", async ({
+test("short desktop sidebars keep navigation reachable and settings in the account menu", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 1365, height: 414 });
@@ -377,15 +495,24 @@ test("short desktop sidebars keep utilities reachable and identity in the top ba
   await expect(sidebar).toHaveCSS("overflow-y", "auto");
   await expect(sidebar.locator(".profile")).toHaveCount(0);
   await expect(page.locator(".topbar-profile")).toContainText("Aarav Mehta");
-  await expect(page.getByRole("button", { name: "Sign out" })).toBeVisible();
+  await expect(sidebar.getByText("Sample workspace")).toHaveCount(0);
+  await expect(sidebar.getByText("About this workspace")).toHaveCount(0);
+  await expect(sidebar.getByText("Settings", { exact: true })).toHaveCount(0);
+  await page
+    .getByRole("button", { name: "Open account menu for Aarav Mehta" })
+    .click();
+  await expect(page.getByRole("menuitem", { name: "Settings" })).toBeFocused();
+  await expect(page.getByRole("menuitem", { name: "Sign out" })).toBeVisible();
   await sidebar.evaluate((element) =>
     element.scrollTo(0, element.scrollHeight),
   );
-  await expect(
-    page.getByRole("button", { name: "About this workspace" }),
-  ).toBeVisible();
   await page.screenshot({
     path: ".impeccable/review/sidebar-short.png",
     fullPage: false,
   });
+  await page.getByRole("menuitem", { name: "Settings" }).click();
+  await expect(page).toHaveURL(/\/settings$/);
+  await expect(
+    page.getByRole("heading", { name: "Workspace settings" }),
+  ).toBeVisible();
 });

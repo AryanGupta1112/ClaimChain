@@ -81,6 +81,81 @@ test("a valid case persists across a database restart", async () => {
   }
 });
 
+test("rejects a duplicate payment invoice for the same counterparty", async () => {
+  await fixture(async (agent) => {
+    const payload = {
+      title: "Duplicate invoice check",
+      kind: "payment" as const,
+      counterparty: "Manual Test Retail Partner",
+      invoice: "MANUAL-TEST-001",
+      amount: 2500000,
+      dueDate: "2026-09-14",
+      summary: "First record",
+    };
+    await agent.post("/api/cases").send(payload).expect(201);
+    const duplicate = await agent
+      .post("/api/cases")
+      .send({ ...payload, title: "Second record" });
+    assert.equal(duplicate.status, 409);
+    assert.equal(duplicate.body.code, "DUPLICATE_INVOICE");
+  }, false);
+});
+
+test("halting ingestion blocks every entry point and persists across restart", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "claimchain-simulation-"));
+  const first = createApp({ directory });
+  try {
+    const firstAgent = request.agent(first.app);
+    await firstAgent
+      .post("/api/auth/login")
+      .send({ identifier: "admin", password: DEMO_PASSWORD })
+      .expect(200);
+    const initial = await firstAgent.get("/api/simulation/status").expect(200);
+    assert.equal(initial.body.halted, false);
+
+    const halted = await firstAgent
+      .post("/api/simulation/control")
+      .send({ halted: true })
+      .expect(200);
+    assert.equal(halted.body.halted, true);
+    await firstAgent
+      .post("/api/simulation/ingest")
+      .expect(409)
+      .expect(({ body }) => assert.equal(body.code, "SIMULATION_HALTED"));
+  } finally {
+    first.simulation.stop();
+    first.db.close();
+  }
+
+  const second = createApp({ directory });
+  try {
+    const secondAgent = request.agent(second.app);
+    await secondAgent
+      .post("/api/auth/login")
+      .send({ identifier: "admin", password: DEMO_PASSWORD })
+      .expect(200);
+    const remembered = await secondAgent
+      .get("/api/simulation/status")
+      .expect(200);
+    assert.equal(remembered.body.halted, true);
+    assert.equal(remembered.body.running, false);
+
+    await secondAgent
+      .post("/api/simulation/control")
+      .send({ halted: false })
+      .expect(200)
+      .expect(({ body }) => assert.equal(body.halted, false));
+    const ingested = await secondAgent
+      .post("/api/simulation/ingest")
+      .expect(201);
+    assert.equal(ingested.body.status.ingested, 1);
+  } finally {
+    second.simulation.stop();
+    second.db.close();
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 test("partial and full payments reconcile, replay safely and reject overpayment", () =>
   fixture(async (agent) => {
     const c = (
