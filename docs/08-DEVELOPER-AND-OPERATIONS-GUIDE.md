@@ -1,8 +1,9 @@
-# Development and Operations
+# ClaimChain Developer and Operations Guide
 
 ## Prerequisites
 
 - Node.js 24 or newer.
+- Python 3.11 or newer with `py -m pip install -r django_auth/requirements.txt`.
 - npm.
 - Chromium for Playwright browser tests.
 - Docker and Docker Compose only for container operation.
@@ -21,8 +22,9 @@ Open:
 - Landing: `http://127.0.0.1:5173/`
 - Workspace: `http://127.0.0.1:5173/workspace`
 - API health: `http://127.0.0.1:3001/api/health`
+- Django auth health: `http://127.0.0.1:8000/auth/health`
 
-`scripts/dev.mjs` starts Express first, waits for a healthy response, then starts Vite. Stop both with `Ctrl+C` in the same terminal.
+`scripts/dev.mjs` runs Django migrations and seeds an empty auth database, then starts Django, Express, and Vite after both backend health checks pass. Stop all three with `Ctrl+C` in the same terminal.
 
 ## Production-style local run
 
@@ -37,10 +39,11 @@ Open `http://127.0.0.1:3001/`. Express serves both the built frontend and API.
 
 | Command                | Purpose                                        |
 | ---------------------- | ---------------------------------------------- |
-| `npm run dev`          | Start API and Vite with readiness coordination |
+| `npm run dev`          | Start Django auth, API and Vite with readiness coordination |
 | `npm run dev:server`   | Watch only the Express server                  |
 | `npm run dev:client`   | Start only Vite; expects API on port 3001      |
 | `npm run typecheck`    | TypeScript check without emitting              |
+| `npm run test:auth`    | Django verification and password-recovery tests |
 | `npm run build`        | Typecheck and create `dist/`                   |
 | `npm start`            | Serve API and existing production bundle       |
 | `npm test`             | Run 16 API/domain/auth/RBAC tests               |

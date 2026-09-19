@@ -1,22 +1,30 @@
 # ClaimChain Documentation
 
-This directory is the canonical handbook for the current ClaimChain release. It explains why the product exists, what it does today, how the code is structured, how its invariants are enforced, how the optional AWS integrations work, and how to operate or evolve it without overstating its capabilities.
+This is the definitive guide to the current ClaimChain release. It is written for store operators, judges, project stakeholders, and engineers. Each document distinguishes working functionality in this repository from recommendations for a future production rollout.
+
+## Start here
+
+ClaimChain is an action-oriented recovery workspace for small stores. It brings payment recovery, evidence, documents, follow-ups, and stock handoffs into one accountable operating record. It does not merely observe problems: authorised users can create cases, record payments, prepare correspondence, complete recovery requirements, reserve stock, and confirm transfers.
+
+New readers should begin with the [Executive overview](01-EXECUTIVE-OVERVIEW.md), then read the [Product and business case](02-PRODUCT-AND-BUSINESS-CASE.md). Technical readers can continue through the architecture, security, and deployment guides in order.
 
 ## Documentation map
 
-| Document                                                       | Audience                            | Purpose                                                                                      |
-| -------------------------------------------------------------- | ----------------------------------- | -------------------------------------------------------------------------------------------- |
-| [Project story](01-PROJECT_STORY.md)                           | Judges, contributors, product teams | Origin, product decisions, design evolution, and current-state summary                       |
-| [Product and use cases](02-PRODUCT_AND_USE_CASES.md)           | Product, design, users              | Personas, jobs, workflows, value, scope, and honest boundaries                               |
-| [System architecture](03-SYSTEM_ARCHITECTURE.md)               | Engineers, reviewers                | Runtime topology, components, request/data flows, persistence, and architectural trade-offs  |
-| [Domain model and workflows](04-DOMAIN_MODEL_AND_WORKFLOWS.md) | Engineers, QA                       | Entities, relationships, state machines, invariants, and failure behavior                    |
-| [API reference](05-API_REFERENCE.md)                           | Frontend and integration engineers  | Current HTTP routes, payloads, responses, errors, and authentication                         |
-| [AWS deployment](AWS_DEPLOYMENT.md)                            | Cloud and DevOps engineers          | S3, Textract, Bedrock, EC2/EBS deployment, IAM, rollout, backup, and production evolution    |
-| [Security and reliability](06-SECURITY_PRIVACY_RELIABILITY.md) | Security and engineering            | Trust boundaries, controls, privacy posture, threat model, and operational risks             |
-| [Development and operations](07-DEVELOPMENT_AND_OPERATIONS.md) | Contributors, operators             | Setup, environment, commands, data management, troubleshooting, and release procedure        |
-| [Testing and quality](08-TESTING_AND_QUALITY.md)               | QA, reviewers, contributors         | Automated coverage, visual/accessibility checks, test isolation, and known verification gaps |
-| [Demo and roadmap](09-DEMO_COMPETITION_AND_ROADMAP.md)         | Judges, presenters, stakeholders    | Demo script, competition narrative, architecture talking points, and phased roadmap          |
-| [Authentication, RBAC, and simulation](10-AUTH_RBAC_AND_SIMULATION.md) | Security and integration engineers | Three-role capabilities, account lifecycle, scoped records, audit, and synthetic ingestion   |
+| Document | Primary audience | What it answers |
+| --- | --- | --- |
+| [Executive overview](01-EXECUTIVE-OVERVIEW.md) | Everyone | Why ClaimChain exists, what it delivers, and its current maturity. |
+| [Product and business case](02-PRODUCT-AND-BUSINESS-CASE.md) | Store leaders, product teams, judges | Who uses it, which business problems it solves, value, scope, and limitations. |
+| [Solution architecture](03-SOLUTION-ARCHITECTURE.md) | Engineers, reviewers | How the browser, Django identity service, Express workspace API, storage, and optional AWS services work together. |
+| [Domain model and operational workflows](04-DOMAIN-MODEL-AND-OPERATIONAL-WORKFLOWS.md) | Operators, engineers, QA | The meaning of cases, evidence, payments, stock, state changes, and business safeguards. |
+| [API and integration reference](05-API-AND-INTEGRATION-REFERENCE.md) | Engineers | The current HTTP contract, authorisation requirements, payloads, errors, and integration behaviour. |
+| [AWS deployment architecture](06-AWS-DEPLOYMENT-ARCHITECTURE.md) | Cloud engineers, judges | The selected AWS services, EC2 deployment design, IAM, backups, monitoring, and operational rollout. |
+| [Security, privacy, and reliability](07-SECURITY-PRIVACY-AND-RELIABILITY.md) | Security reviewers, engineers | Trust boundaries, controls, data handling, resilience, and the production security gate. |
+| [Developer and operations guide](08-DEVELOPER-AND-OPERATIONS-GUIDE.md) | Contributors, operators | Local setup, configuration, data locations, routine operation, troubleshooting, and releases. |
+| [Quality assurance and testing](09-QUALITY-ASSURANCE-AND-TESTING.md) | QA, reviewers | What is tested, how quality is assessed, and what remains to be proven before a live rollout. |
+| [Demo guide and product roadmap](10-DEMO-GUIDE-AND-PRODUCT-ROADMAP.md) | Presenters, judges, stakeholders | A concise demo narrative, competition talking points, and responsible product evolution. |
+| [Identity, access, and simulation](11-IDENTITY-ACCESS-AND-SIMULATION.md) | Administrators, engineers | Django authentication, the three roles, account lifecycle, audit records, pagination, and fictional ingestion. |
+| [Django identity and RBAC implementation](12-DJANGO-IDENTITY-AND-RBAC-IMPLEMENTATION.md) | Administrators, engineers | The complete Django authentication, session, verification, password recovery, and server-enforced RBAC design. |
+| [Glossary](13-GLOSSARY.md) | Everyone | Plain-language definitions for operational, security, and cloud terms used across the project. |
 
 ## Current-state labels
 
@@ -40,4 +48,4 @@ When documentation and code disagree, use this precedence:
 3. This documentation set.
 4. Historical plans such as `IMPLEMENTATION_PLAN.md`.
 
-The implementation record and latest test results remain in [`../VERIFICATION.md`](../VERIFICATION.md). The UI system is recorded in [`../DESIGN.md`](../DESIGN.md).
+The implementation record and latest test results remain in [`../VERIFICATION.md`](../VERIFICATION.md). The UI system is recorded in [`../DESIGN.md`](../DESIGN.md). The source code remains the final authority when it differs from any document.

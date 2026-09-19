@@ -1,4 +1,4 @@
-# Security, Privacy, and Reliability
+# ClaimChain Security, Privacy, and Reliability
 
 ## Security posture
 
@@ -49,15 +49,15 @@ No malware scanner is implemented. Public deployment should scan uploads before 
 ### Authentication and sessions
 
 - Authentication is mandatory and uses individual username/email accounts.
-- Passwords are salted scrypt hashes; verification/reset codes and opaque session tokens are stored only as SHA-256 digests.
+- Passwords use Django's configured password hash; verification/reset codes and revocable session tokens are stored only as SHA-256 digests.
 - Three server-enforced roles provide capability checks; recovery operators also require explicit case/store assignment.
 - Failed login and code requests are rate-limited per process/IP/identifier.
-- Session cookies are HTTP-only, `SameSite=Lax`, scoped to `/`, and expire server-side after the configured lifetime.
+- Django session cookies are HTTP-only, `SameSite=Lax`, scoped to `/`, and are checked by Django for every Express workspace request.
 - Verification and password recovery codes are short-lived, single-use, and revoke sessions after reset.
 - Security-sensitive decisions are recorded in a normalized audit table without credentials or raw tokens.
 - Non-loopback binding requires a strong bootstrap password, `AUTH_COOKIE_SECURE=true`, and `APP_ORIGIN`.
 
-This is workspace-level RBAC, not tenant isolation or MFA. Process-local rate limits reset on restart and do not coordinate across replicas. See [Authentication, RBAC, and simulation](10-AUTH_RBAC_AND_SIMULATION.md).
+This is workspace-level RBAC, not tenant isolation or MFA. Process-local rate limits reset on restart and do not coordinate across replicas. See [Identity, access, and simulation](11-IDENTITY-ACCESS-AND-SIMULATION.md).
 
 ### Request and browser protections
 

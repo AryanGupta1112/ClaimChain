@@ -1,11 +1,11 @@
-# System Architecture
+# ClaimChain Solution Architecture
 
 ## Architectural style
 
-The current release is a modular monolith deployed as one Node.js process:
+The current release is a compact two-service deployment:
 
 - React and Vite provide the browser application.
-- Express provides the HTTP API and serves the built frontend.
+- Django owns authentication and identity APIs; Express provides the recovery workspace API and serves the built frontend.
 - SQLite stores one versioned workspace snapshot transactionally.
 - The filesystem stores original evidence bytes.
 - PDFKit produces letters and case packets.
@@ -18,9 +18,11 @@ This shape minimizes deployment complexity and keeps all financial/inventory mut
 ```mermaid
 flowchart LR
     U[Store owner<br/>desktop or mobile browser]
-    V[React 19 SPA<br/>Vite build]
-    E[Express 5 API<br/>Node.js 24]
+    V[React 19 browser application<br/>Vite build]
+    A[Django identity service<br/>accounts and sessions]
+    E[Express 5 workspace API<br/>Node.js 24]
     D[(SQLite workspace snapshot<br/>WAL mode)]
+    AD[(Django SQLite<br/>accounts, codes, audit)]
     F[(Evidence files<br/>DATA_DIR/evidence)]
     P[PDFKit<br/>letters and packets]
     S[(Private Amazon S3<br/>optional mirror)]
@@ -28,8 +30,11 @@ flowchart LR
     B[Amazon Bedrock<br/>optional drafting]
 
     U -->|HTTPS in deployment| V
+    V -->|/auth| A
     V -->|/api JSON and multipart| E
+    E -->|validate signed session| A
     E --> D
+    A --> AD
     E --> F
     E --> P
     E -. explicit user action .-> S
@@ -37,9 +42,9 @@ flowchart LR
     E -. reviewed case facts .-> B
 ```
 
-In development, Vite runs at `127.0.0.1:5173` and proxies `/api` to Express at `127.0.0.1:3001`. The custom development launcher starts the API, polls `/api/health`, and starts Vite only after the API is ready. This prevents the initial bootstrap request from racing the backend.
+In development, Vite runs at `127.0.0.1:5173`, proxies `/auth` to Django at `127.0.0.1:8000`, and proxies `/api` to Express at `127.0.0.1:3001`. The launcher runs Django migrations, starts both services, checks their health, and only then starts Vite.
 
-In the production build, Express serves `dist/` and the API from the same origin and port.
+In production, the public origin serves the React build and routes same-origin `/auth` requests to Django and `/api` requests to Express. The selected AWS design uses CloudFront in front of an HTTPS reverse proxy on EC2. CloudFront caches only static application assets; it forwards cookies and disables caching for `/auth` and `/api`.
 
 ## Component responsibilities
 
