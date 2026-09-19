@@ -1,4 +1,4 @@
-# API Reference
+# ClaimChain API and Integration Reference
 
 ## Conventions
 
@@ -9,7 +9,7 @@
 - Business dates use `YYYY-MM-DD`.
 - Errors use `{ "error": "Human-readable message", "code": "STABLE_CODE" }`.
 - Validation failures return `400`, missing records `404`, and transition/domain conflicts `409`.
-- All API routes except health and the auth lifecycle require an opaque HTTP-only session cookie.
+- All workspace API routes except health require a Django-issued HTTP-only session cookie.
 - Mutating requests with a foreign `Origin` are rejected with `403`.
 
 ## Health and session
@@ -22,28 +22,28 @@ Returns process health and whether authentication is enabled.
 { "status": "ok", "authentication": true }
 ```
 
-### `POST /api/auth/login`
+### `POST /auth/login`
 
 ```json
 { "identifier": "admin", "password": "account password" }
 ```
 
-On success, sets an opaque HTTP-only, `SameSite=Lax` cookie. `Secure` is added when `AUTH_COOKIE_SECURE=true`. Repeated attempts are rate limited.
+On success, Django sets a signed, HTTP-only, `SameSite=Lax` cookie backed by a revocable session. `Secure` is added when `AUTH_COOKIE_SECURE=true`. Repeated attempts are rate limited.
 
-### `GET /api/auth/me`
+### `GET /auth/me`
 
 Returns the current safe user object, including role, capabilities, and assigned record scopes.
 
-### `POST /api/auth/logout`
+### `POST /auth/logout`
 
 Expires the session cookie.
 
 ### Verification and recovery
 
-- `POST /api/auth/verify/send` with `{ "identifier": "..." }`
-- `POST /api/auth/verify/confirm` with `identifier`, `requestId`, and six-digit `code`
-- `POST /api/auth/forgot` with `{ "identifier": "..." }`
-- `POST /api/auth/reset` with `requestId`, `code`, and the new `password`
+- `POST /auth/verify/send` with `{ "identifier": "..." }`
+- `POST /auth/verify/confirm` with `identifier`, `requestId`, and six-digit `code`
+- `POST /auth/forgot` with `{ "identifier": "..." }`
+- `POST /auth/reset` with `requestId`, `code`, and the new `password`
 
 Send/forgot use generic responses to limit account discovery. Codes expire, are single-use, and are stored only as digests.
 
@@ -55,9 +55,10 @@ Send/forgot use generic responses to limit account discovery. Codes expire, are 
 - `POST /api/admin/users/:id/resend-verification`
 - `GET /api/admin/security-audit?page=1&pageSize=10`
 - `GET /api/simulation/status`
+- `POST /api/simulation/control` with `{ "halted": true|false }`
 - `POST /api/simulation/ingest`
 
-These routes require administrator capabilities. User and audit lists return `items`, `page`, `pageSize`, `total`, and `pages`. See [Authentication, RBAC, and simulation](10-AUTH_RBAC_AND_SIMULATION.md).
+These routes require administrator capabilities. The control state is persisted in SQLite; while halted, scheduled ingestion is stopped and manual ingestion returns `409 SIMULATION_HALTED`. User and audit lists return `items`, `page`, `pageSize`, `total`, and `pages`. See [Identity, access, and simulation](11-IDENTITY-ACCESS-AND-SIMULATION.md).
 
 ## Workspace
 
@@ -135,7 +136,7 @@ Returns the case plus its payments, evidence, documents, tasks, checklist, and c
 }
 ```
 
-Both fields are optional. Resolution rules are described in [Domain model and workflows](04-DOMAIN_MODEL_AND_WORKFLOWS.md).
+Both fields are optional. Resolution rules are described in [Domain model and operational workflows](04-DOMAIN-MODEL-AND-OPERATIONAL-WORKFLOWS.md).
 
 ### `GET /api/cases/:id/packet`
 

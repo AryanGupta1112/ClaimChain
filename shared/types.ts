@@ -164,6 +164,15 @@ export interface Capabilities {
   region: string;
   mode: string;
 }
+export interface SimulationStatus {
+  enabled: boolean;
+  intervalMs: number;
+  running: boolean;
+  halted: boolean;
+  ingested: number;
+  lastEvent: string | null;
+  nextEvent: string;
+}
 export type Bootstrap = State & { capabilities: Capabilities };
 export type CaseDetail = RecoveryCase & {
   payments: Payment[];

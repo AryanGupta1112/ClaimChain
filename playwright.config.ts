@@ -27,6 +27,7 @@ export default defineConfig({
       DATA_DIR: join(tmpdir(), `claimchain-browser-${Date.now()}`),
       SEED_SAMPLE: "true",
       AUTH_EXPOSE_CODES: "true",
+      AUTH_PROVIDER: "legacy",
       SIMULATION_ENABLED: "false",
     },
   },

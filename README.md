@@ -4,18 +4,20 @@ A working recovery workspace for small stores: evidence-backed cases, payment re
 
 ## Run locally
 
-Requires Node.js 24 or newer.
+Requires Node.js 24 or newer and Python 3.11 or newer with Django installed.
 
 ```sh
 npm ci
+# One time only if Django is not already installed:
+py -m pip install -r django_auth/requirements.txt
 npm run dev
 ```
 
-Open http://127.0.0.1:5173 for the branded landing screen, then enter the workspace. The operational dashboard is also available directly at http://127.0.0.1:5173/workspace. The API runs on port 3001. The first startup creates a fictional sample workspace. Changes persist in `data/claimchain.sqlite` and original evidence in `data/evidence/`.
+Open http://127.0.0.1:5173 for the branded landing screen, then enter the workspace. The operational API runs on port 3001 and Django authentication runs on port 8000. The first startup runs Django migrations and creates fictional sample accounts. Changes persist in `data/claimchain.sqlite`, `data/claimchain-auth.sqlite3`, and `data/evidence/`.
 
 Sample sign-in: `admin` / `ClaimChainDemo!2026`. The sample also includes `operator` and `auditor` accounts with the same demonstration password so all three RBAC views can be tested.
 
-For the production build on one local port:
+For a production-style Node build, run Django separately behind Nginx as described in the deployment documentation. Docker starts both services and proxies `/auth` through the public Express port:
 
 ```sh
 npm run build
@@ -35,7 +37,7 @@ Open http://127.0.0.1:3001. Do not run both commands on an occupied API port. `P
 - Add stores and inventory, reserve stock, dispatch, cancel reservations, and confirm receipt exactly once.
 - Search/filter/sort and paginate records; update business details and export workspace JSON.
 - Use individual accounts with email verification, password recovery, scoped RBAC, session revocation, and a security audit.
-- Run automatic or manually triggered fictional ingestion when no external feed is connected.
+- Run automatic or manually triggered fictional ingestion when no external feed is connected, with a persisted workspace-wide Continue/Halt control.
 - Optionally connect S3, Textract, Bedrock, and SMTP/SES delivery.
 
 ## Honest boundaries
@@ -49,6 +51,7 @@ Local use needs no cloud credentials. AWS buttons appear only when their server-
 ```sh
 npm run typecheck
 npm test
+npm run test:auth
 npm run build
 npx playwright install chromium
 npm run test:e2e
@@ -61,17 +64,20 @@ The included GitHub Actions workflow runs formatting, build, API and browser che
 ## Project map
 
 - `docs/README.md`: complete current-state documentation index.
-- `docs/01-PROJECT_STORY.md`: origin, decisions and delivery story.
-- `docs/02-PRODUCT_AND_USE_CASES.md`: users, workflows, value and boundaries.
-- `docs/03-SYSTEM_ARCHITECTURE.md`: components, data flows and topology diagrams.
-- `docs/04-DOMAIN_MODEL_AND_WORKFLOWS.md`: entities, invariants and state machines.
-- `docs/05-API_REFERENCE.md`: current HTTP contract.
-- `docs/AWS_DEPLOYMENT.md`: AWS integrations and deployment runbook.
-- `docs/06-SECURITY_PRIVACY_RELIABILITY.md`: controls, risks and production gate.
-- `docs/07-DEVELOPMENT_AND_OPERATIONS.md`: setup, commands and operations.
-- `docs/08-TESTING_AND_QUALITY.md`: coverage and verification limits.
-- `docs/09-DEMO_COMPETITION_AND_ROADMAP.md`: judging narrative and evolution plan.
-- `docs/10-AUTH_RBAC_AND_SIMULATION.md`: three-role access, auth flows, audit, and synthetic ingestion.
+- `docs/README.md`: complete documentation index for business and technical readers.
+- `docs/01-EXECUTIVE-OVERVIEW.md`: purpose, outcome, product story, and current maturity.
+- `docs/02-PRODUCT-AND-BUSINESS-CASE.md`: users, workflows, value, scope, and boundaries.
+- `docs/03-SOLUTION-ARCHITECTURE.md`: components, data flows, and runtime topology.
+- `docs/04-DOMAIN-MODEL-AND-OPERATIONAL-WORKFLOWS.md`: entities, safeguards, and state changes.
+- `docs/05-API-AND-INTEGRATION-REFERENCE.md`: current HTTP contract.
+- `docs/06-AWS-DEPLOYMENT-ARCHITECTURE.md`: selected AWS services and EC2 deployment runbook.
+- `docs/07-SECURITY-PRIVACY-AND-RELIABILITY.md`: controls, privacy, risks, and production gate.
+- `docs/08-DEVELOPER-AND-OPERATIONS-GUIDE.md`: setup, configuration, and operation.
+- `docs/09-QUALITY-ASSURANCE-AND-TESTING.md`: coverage, quality checks, and verification limits.
+- `docs/10-DEMO-GUIDE-AND-PRODUCT-ROADMAP.md`: presentation guide and responsible evolution.
+- `docs/11-IDENTITY-ACCESS-AND-SIMULATION.md`: Django authentication, RBAC, audit, and simulation.
+- `docs/12-DJANGO-IDENTITY-AND-RBAC-IMPLEMENTATION.md`: complete Django authentication and RBAC implementation guide.
+- `docs/13-GLOSSARY.md`: plain-language terminology.
 - `IMPLEMENTATION_PLAN.md`: full product, technical, UX, AWS, risk and test plan.
 - `PRODUCT.md`: product contract.
 - `DESIGN.md`: implemented interface system.

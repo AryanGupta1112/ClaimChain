@@ -33,20 +33,25 @@ export async function api<T>(
   method = "GET",
   body?: unknown,
 ): Promise<T> {
-  const response = await fetch(`/api${path}`, {
-    method,
-    credentials: "same-origin",
-    headers:
-      body instanceof FormData
-        ? undefined
-        : { "Content-Type": "application/json" },
-    body:
-      body === undefined
-        ? undefined
-        : body instanceof FormData
-          ? body
-          : JSON.stringify(body),
-  });
+  const authServicePath =
+    path.startsWith("/auth/") || path.startsWith("/admin/");
+  const response = await fetch(
+    authServicePath ? `/auth${path.replace(/^\/auth/, "")}` : `/api${path}`,
+    {
+      method,
+      credentials: "same-origin",
+      headers:
+        body instanceof FormData
+          ? undefined
+          : { "Content-Type": "application/json" },
+      body:
+        body === undefined
+          ? undefined
+          : body instanceof FormData
+            ? body
+            : JSON.stringify(body),
+    },
+  );
   if (!response.ok) {
     const data = await response
       .json()
@@ -232,11 +237,21 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const [data, setData] = useState<Bootstrap | null>(null);
   const [error, setError] = useState("");
   const refreshVersion = useRef(0);
+  const initialLoad = useRef(true);
   const refresh = useCallback(async () => {
     const version = ++refreshVersion.current;
     try {
-      const next = await api<Bootstrap>("/bootstrap");
+      const request = api<Bootstrap>("/bootstrap");
+      const next = initialLoad.current
+        ? (
+            await Promise.all([
+              request,
+              new Promise<void>((resolve) => window.setTimeout(resolve, 1800)),
+            ])
+          )[0]
+        : await request;
       if (version !== refreshVersion.current) return;
+      initialLoad.current = false;
       setData(next);
       setError("");
     } catch (e) {
@@ -262,7 +277,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   }
   if (!data)
     return (
-      <div className="boot-screen">
+      <div className="boot-screen is-loading" role="status" aria-live="polite">
         <div className="wordmark">
           ClaimChain<span>.</span>
         </div>
@@ -278,8 +293,9 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
           </>
         ) : (
           <>
-            <div className="skeleton" />
-            <div className="skeleton short" />
+            <div className="workspace-loader" aria-hidden="true">
+              <span />
+            </div>
             <span className="muted">Opening your workspace...</span>
           </>
         )}
@@ -470,13 +486,15 @@ export function Modal({
 }
 export function Submit({
   busy,
+  disabled = false,
   children,
 }: {
   busy: boolean;
+  disabled?: boolean;
   children: ReactNode;
 }) {
   return (
-    <button className="btn primary" type="submit" disabled={busy}>
+    <button className="btn primary" type="submit" disabled={busy || disabled}>
       {busy && <LoaderCircle size={16} className="spin" />}
       {children}
     </button>

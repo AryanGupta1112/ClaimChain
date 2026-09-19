@@ -10,6 +10,7 @@
     "build": "tsc --noEmit && vite build",
     "start": "tsx server/index.ts",
     "test": "tsx --test tests/api.test.ts",
+    "test:auth": "py django_auth/manage.py test identities",
     "test:e2e": "playwright test",
     "typecheck": "tsc --noEmit",
     "format": "prettier --write src server shared tests scripts",

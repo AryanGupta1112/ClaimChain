@@ -1,4 +1,4 @@
-# Testing and Quality
+# ClaimChain Quality Assurance and Testing
 
 ## Quality strategy
 

@@ -1,4 +1,4 @@
-# Domain Model and Workflows
+# ClaimChain Domain Model and Operational Workflows
 
 ## Ubiquitous language
 

@@ -1,6 +1,6 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
-import { BrowserRouter, Route, Routes } from "react-router-dom";
+import { BrowserRouter, Route } from "react-router-dom";
 import { Toaster } from "sonner";
 import "@fontsource-variable/manrope";
 import "@fontsource/ibm-plex-mono/400.css";
@@ -10,6 +10,7 @@ import { App } from "./App";
 import { Landing } from "./Landing";
 import { AuthProvider, RequireAuth } from "./auth";
 import { AuthPage } from "./AuthPage";
+import { RouteTransition, shellTransitionKey } from "./RouteTransition";
 import "./styles.css";
 import "./landing.css";
 import "./auth.css";
@@ -41,7 +42,10 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
     <ErrorBoundary>
       <BrowserRouter>
         <AuthProvider>
-          <Routes>
+          <RouteTransition
+            className="route-transition-shell"
+            routeKey={shellTransitionKey}
+          >
             <Route path="/" element={<Landing />} />
             <Route path="/login" element={<AuthPage mode="login" />} />
             <Route path="/verify" element={<AuthPage mode="verify" />} />
@@ -60,7 +64,7 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
                 </RequireAuth>
               }
             />
-          </Routes>
+          </RouteTransition>
         </AuthProvider>
       </BrowserRouter>
       <Toaster position="bottom-right" richColors closeButton />

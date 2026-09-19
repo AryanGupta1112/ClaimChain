@@ -1,4 +1,4 @@
-# Demo, Competition Narrative, and Roadmap
+# ClaimChain Demo Guide and Product Roadmap
 
 ## The concise pitch
 

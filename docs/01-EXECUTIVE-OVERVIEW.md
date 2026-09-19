@@ -1,4 +1,4 @@
-# Project Story
+# ClaimChain Executive Overview
 
 ## The starting question
 

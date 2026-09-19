@@ -1,4 +1,4 @@
-# AWS Architecture and Deployment
+# ClaimChain AWS Deployment Architecture
 
 ## Purpose and status
 
@@ -8,43 +8,69 @@ This chapter explains how AWS services fit ClaimChain and how to deploy the curr
 
 ## AWS service map
 
-| AWS service                        | Release status          | Role                                                                |
-| ---------------------------------- | ----------------------- | ------------------------------------------------------------------- |
-| AWS Identity and Access Management | Required for deployment | Instance role and least-privilege S3, Textract, and Bedrock access  |
-| Amazon EC2                         | Deployment-ready        | Runs the single Node/Docker process                                 |
-| Amazon EBS                         | Deployment-ready        | Durable volume for SQLite and original evidence                     |
-| Amazon S3                          | Optional/implemented    | Private encrypted mirror of original evidence with SHA-256 metadata |
-| Amazon Textract                    | Optional/implemented    | Synchronous text detection for PNG/JPEG evidence up to 5 MiB        |
-| Amazon Bedrock                     | Optional/implemented    | Review-required factual recovery-letter drafting through Converse   |
-| AWS Systems Manager                | Recommended             | Session Manager access, patching, and secret/parameter delivery     |
-| Amazon CloudWatch                  | Recommended             | Host/container logs, health alarms, disk monitoring, and dashboards |
-| AWS Backup / EBS snapshots         | Recommended             | Recoverable copies of the persistent data volume                    |
-| Amazon Route 53                    | Optional                | DNS for the public hostname                                         |
-| Amazon ECR                         | Optional                | Versioned Docker image storage when builds move off-host            |
+| AWS service | Status in this project | Responsibility |
+| --- | --- | --- |
+| Amazon EC2 | Selected deployment service | Runs the Dockerised Django identity service and Express workspace service on one host. |
+| Amazon EBS | Selected deployment service | Provides the encrypted persistent data volume for SQLite databases and original evidence. |
+| Amazon S3 | Optional application integration | Receives an explicit private evidence mirror with SHA-256 metadata. |
+| Amazon Textract | Optional application integration | Extracts printed text from supported PNG/JPEG evidence up to 5 MiB. |
+| Amazon Bedrock | Optional application integration | Creates a factual, review-required recovery-letter draft through Converse. |
+| Amazon SES | Selected email delivery service | Delivers verification and password-reset messages through its SMTP endpoint. |
+| Amazon CloudFront | Selected edge delivery service | Serves static application assets over HTTPS and forwards dynamic requests to the EC2 origin. |
+| AWS Identity and Access Management (IAM) | Required deployment control | Gives the EC2 instance only the S3, Textract, and Bedrock permissions it needs. |
+| Amazon CloudWatch | Selected operations service | Monitors host health, disk capacity, application logs, error rates, and alarms. |
 
-CloudFront, WAF, ALB, ECS/Fargate, RDS, Cognito, SQS, Step Functions, EventBridge, and SES belong to a proposed scaled architecture and are not needed to demonstrate this release.
+Systems Manager, AWS Backup or scheduled EBS snapshots, Route 53, and ECR are sensible supporting services but are not required to understand or run the selected architecture. CloudFront must not cache authenticated or API responses. WAF, ALB, ECS/Fargate, RDS, Cognito, SQS, Step Functions, and EventBridge are future scale options, not part of the current deployment.
 
 ## Current AWS integration flow
 
 ```mermaid
 flowchart LR
     User[Workspace owner]
-    App[ClaimChain on EC2<br/>one Docker container]
+    CF[CloudFront<br/>HTTPS and static asset delivery]
+    App[ClaimChain on EC2<br/>Django plus Express]
     EBS[(Encrypted EBS<br/>SQLite + originals)]
     S3[(Private S3 mirror)]
     TX[Textract<br/>DetectDocumentText]
     BR[Bedrock Runtime<br/>Converse]
+    SES[Amazon SES SMTP<br/>verification and reset email]
     IAM[IAM instance profile]
+    CW[CloudWatch<br/>logs and alarms]
 
-    User -->|HTTPS| App
+    User -->|HTTPS| CF
+    CF -->|dynamic routes and origin fetches| App
     App --> EBS
     App -. explicit mirror .-> S3
     App -. explicit extract .-> TX
     App -. explicit draft .-> BR
+    App -->|SMTP| SES
+    App -->|sanitised logs and metrics| CW
     IAM --> App
 ```
 
 The server uses the default AWS SDK credential provider chain. On EC2, use an attached instance profile. Never bake long-lived keys into the image, commit them, or expose them through Vite variables.
+
+## Selected platform services in detail
+
+### Amazon EC2 and Amazon EBS
+
+EC2 is the single compute host for the current architecture. Docker starts the Django authentication service, the Express workspace API, and the production browser application from the same release artifact. This deliberately keeps the competition deployment small and understandable.
+
+EBS is the durable local data layer. The Docker data volume must be placed on an encrypted EBS volume so the operational SQLite database, Django identity database, and `evidence/` originals survive container replacement and routine host restarts. The application is a single-instance design: do not run two writable copies against the same workspace data.
+
+### Amazon CloudFront
+
+CloudFront is the public edge in front of the EC2 origin. It provides HTTPS delivery and efficient caching for versioned JavaScript, CSS, fonts, and image assets. Authentication and operational data are dynamic and sensitive, so `/auth/*` and `/api/*` must be configured as non-cached behaviours that forward the required cookies and request headers to the origin.
+
+### Amazon SES
+
+SES is the selected production mail provider for account verification and password recovery. Django sends these messages through SES SMTP using the standard SMTP configuration in `.env`; no password-reset code is returned to a production browser response. SES sender verification, sandbox exit where applicable, and bounce/complaint handling are account-level deployment tasks that must be complete before inviting real users.
+
+### IAM and CloudWatch
+
+The EC2 instance receives an IAM role rather than permanent AWS access keys. The role permits only the configured S3 write prefix, Textract text detection, and the selected Bedrock model or inference profile. SES SMTP credentials are separate mail credentials and must be stored as secrets, never source code.
+
+CloudWatch is the operating view of the deployed service. It should collect EC2 and disk health, reverse-proxy and application logs, service restarts, API health failures, AWS integration errors, and alarm thresholds. Logs must remain sanitised: never send evidence content, browser cookies, passwords, reset codes, or complete model prompts.
 
 ## Implemented services
 
@@ -90,10 +116,10 @@ The SQLite/filesystem design requires one application instance. Use EC2 with an 
 
 ### 2. Launch the host
 
-- Use a supported AWS Linux AMI with enough memory for Node, uploads, PDF generation, and Docker builds.
+- Use a supported AWS Linux AMI with enough memory for Node, Django, uploads, PDF generation, and Docker builds.
 - Attach the IAM role.
 - Prefer administration through Systems Manager and avoid public SSH.
-- Restrict inbound access to HTTPS; never expose application port `3001` publicly.
+- Restrict inbound access to the HTTPS reverse proxy; never expose application port `3001` or Django port `8000` publicly.
 
 ### 3. Configure the application
 
@@ -139,9 +165,9 @@ curl http://127.0.0.1:3001/api/health
 
 Compose binds the service to host loopback and stores `/app/data` in a named volume. Verify that Docker persists the volume on the intended EBS filesystem.
 
-### 5. Add HTTPS
+### 5. Add CloudFront and HTTPS
 
-Put a maintained reverse proxy in front of `127.0.0.1:3001`. Caddy or Nginx can terminate a public certificate and forward to loopback; Route 53 can provide DNS. An ALB with ACM is possible, but do not add another application replica while SQLite is authoritative.
+Put a maintained reverse proxy in front of the local application services. The reverse proxy routes `/auth` to Django on port `8000`, routes `/api` to Express on port `3001`, and serves the production browser application. Configure CloudFront with this HTTPS origin. Cache versioned static assets, but forward cookies and disable caching for `/auth/*` and `/api/*`. Route 53 can provide DNS. Do not add another application replica while SQLite is authoritative.
 
 Required properties:
 
@@ -149,9 +175,16 @@ Required properties:
 - `APP_ORIGIN` exactly matches the public origin;
 - `COOKIE_SECURE=true`;
 - proxy preserves host/forwarding headers;
-- application port stays private.
+- application ports stay private;
+- CloudFront does not cache authenticated or API responses.
 
-### 6. Verify the deployment
+### 6. Configure SES delivery
+
+Verify an SES sender identity or domain, complete sandbox exit when required, and create SMTP credentials with permission to send from the approved identity. Configure `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, and `SMTP_FROM` as shown above. The current Django service uses standard SMTP via Django's mail backend; it does not expose AWS credentials to the browser.
+
+Before accepting real users, send and receive verification and reset messages using a controlled test account. Configure bounce and complaint handling according to the organisation's email policy.
+
+### 7. Verify the deployment
 
 1. Sign in and create a disposable case.
 2. Upload a non-sensitive test PNG/JPEG.
