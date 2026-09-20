@@ -120,7 +120,7 @@ An unauthenticated request receives `401 UNAUTHENTICATED`. An authenticated acco
 
 ## Configuration and first start
 
-The development launcher runs Django migrations and seeds the three fictional demonstration users only when the identity database is empty. The relevant environment values are in [`.env.example`](../.env.example):
+The development launcher runs Django migrations. On an empty identity database, `SEED_SAMPLE=true` creates the three fictional demonstration users; `SEED_SAMPLE=false` creates only the configured bootstrap administrator. Existing accounts are not reset when environment values change. The relevant environment values are in [`.env.example`](../.env.example):
 
 | Setting | Purpose |
 | --- | --- |

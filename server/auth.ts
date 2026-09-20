@@ -113,6 +113,7 @@ export class AuthService {
   constructor(
     private db: DatabaseSync,
     seedSample: boolean,
+    seedUsers = true,
   ) {
     this.codeSecret =
       process.env.SESSION_SECRET ||
@@ -123,7 +124,7 @@ export class AuthService {
     );
     this.db.exec("PRAGMA foreign_keys=ON;");
     this.db.exec(migration);
-    this.seedInitialUsers(seedSample);
+    if (seedUsers) this.seedInitialUsers(seedSample);
   }
 
   private passwordHash(password: string, salt: string) {

@@ -81,4 +81,4 @@ The complete role contract and endpoint matrix are maintained in [`../RBAC-PLAN.
 
 React sends `/auth/*` and `/auth/admin/*` to Django on port `8000` in development. Express continues to own `/api/*` recovery, evidence, stock, simulation, and document operations on port `3001`. It asks Django to validate each signed cookie, so logout, password reset, a disabled account, and role changes take effect immediately in both services.
 
-`npm run dev` applies Django migrations, seeds the three fictional demonstration accounts only when the Django database is empty, then starts Django, Express, and Vite. In production, EC2/Nginx routes `/auth` to Django and `/api` to Express under one HTTPS domain.
+`npm run dev` applies Django migrations and starts Django, Express, and Vite. On an empty identity database, `SEED_SAMPLE=true` creates the three fictional demonstration accounts; `SEED_SAMPLE=false` creates only the configured bootstrap administrator. Existing accounts are never replaced by environment changes. In production, EC2/Nginx routes `/auth` to Django and `/api` to Express under one HTTPS domain.

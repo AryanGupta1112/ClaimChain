@@ -229,15 +229,16 @@ export function createApp(
     directory,
     options.seed ?? process.env.SEED_SAMPLE !== "false",
   );
-  const auth = new AuthService(
-    db.db,
-    options.seed ?? process.env.SEED_SAMPLE !== "false",
-  );
   // Unit tests deliberately retain the legacy in-process provider. Every real
   // runtime uses Django as the identity authority and only consumes its signed
   // session cookie here.
   const authProvider =
     process.env.AUTH_PROVIDER || (options.directory ? "legacy" : "django");
+  const auth = new AuthService(
+    db.db,
+    options.seed ?? process.env.SEED_SAMPLE !== "false",
+    authProvider === "legacy",
+  );
   const simulation = new SimulationService(db);
   const app = express();
   const cookieName = (
